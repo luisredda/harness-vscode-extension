@@ -1,0 +1,146 @@
+import { HarnessConfig } from '../config/configManager';
+
+export interface HarnessCurrentUser {
+  uuid: string;
+  email: string;
+  name: string;
+}
+
+/**
+ * Fetches the currently authenticated user's profile.
+ * GET /ng/api/users/currentUser?accountIdentifier=...
+ */
+export async function getCurrentUser(config: HarnessConfig): Promise<HarnessCurrentUser | null> {
+  try {
+    const qs = new URLSearchParams({ accountIdentifier: config.accountIdentifier });
+    const url = `${config.baseUrl}/ng/api/user/currentUser?${qs}`;
+    console.log('[Harness] getCurrentUser →', url);
+    const res = await fetch(url, {
+      headers: { 'x-api-key': config.apiKey, 'Content-Type': 'application/json' },
+    });
+    console.log('[Harness] getCurrentUser HTTP', res.status);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.warn('[Harness] getCurrentUser failed:', text.slice(0, 200));
+      return null;
+    }
+    const json = await res.json();
+    console.log('[Harness] getCurrentUser payload:', JSON.stringify(json?.data));
+    const u = json?.data;
+    if (!u?.uuid) {
+      console.warn('[Harness] getCurrentUser: no uuid in response');
+      return null;
+    }
+    return { uuid: u.uuid, email: u.email ?? '', name: u.name ?? '' };
+  } catch (e) {
+    console.error('[Harness] getCurrentUser exception:', e);
+    return null;
+  }
+}
+
+/**
+ * Checks if a user is a member of a specific group.
+ * GET /ng/api/user-groups/{groupId}/member/{userIdentifier}
+ *
+ * Harness group identifiers are prefixed with their scope:
+ *   account.<id>  → account-scoped  (no org/project in query)
+ *   org.<id>      → org-scoped      (account + org)
+ *   _project_<id> → project-scoped  (account + org + project)
+ *   <id>          → project-scoped  (default)
+ */
+async function isUserInGroup(
+  config: HarnessConfig,
+  rawGroupId: string,
+  userUuid: string
+): Promise<boolean> {
+  try {
+    let groupId = rawGroupId;
+    const qs: Record<string, string> = { accountIdentifier: config.accountIdentifier };
+
+    if (rawGroupId.startsWith('account.')) {
+      groupId = rawGroupId.slice('account.'.length);
+      // account-scoped: no org/project params
+    } else if (rawGroupId.startsWith('org.')) {
+      groupId = rawGroupId.slice('org.'.length);
+      qs.orgIdentifier = config.orgIdentifier;
+    } else {
+      // project-scoped (with or without _project_ prefix)
+      groupId = rawGroupId.replace(/^_project_/, '');
+      qs.orgIdentifier     = config.orgIdentifier;
+      qs.projectIdentifier = config.projectIdentifier;
+    }
+
+    const url = `${config.baseUrl}/ng/api/user-groups/${encodeURIComponent(groupId)}/member/${encodeURIComponent(userUuid)}?${new URLSearchParams(qs)}`;
+    console.log('[Harness] isUserInGroup →', url);
+    const res = await fetch(url, {
+      headers: { 'x-api-key': config.apiKey, 'Content-Type': 'application/json' },
+    });
+    console.log('[Harness] isUserInGroup HTTP', res.status, 'for group', rawGroupId);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.warn('[Harness] isUserInGroup failed:', text.slice(0, 200));
+      return false;
+    }
+    const json = await res.json();
+    console.log('[Harness] isUserInGroup payload:', JSON.stringify(json?.data));
+    // Response data is a boolean: true if member
+    return json?.data === true;
+  } catch (e) {
+    console.error('[Harness] isUserInGroup exception:', e);
+    return false;
+  }
+}
+
+/**
+ * Determines whether the current user is allowed to approve a pipeline step,
+ * based on the step's approver configuration.
+ *
+ * @param approverUsers  Raw user objects from stepParameters.spec.approvers.users
+ * @param approverGroups Group identifiers from stepParameters.spec.approvers.userGroups
+ * @returns true  → show Approve/Reject buttons
+ *          false → hide buttons (user is not an approver)
+ *          null  → could not determine (API error) — caller should default to showing buttons
+ */
+export async function canCurrentUserApprove(
+  config: HarnessConfig,
+  approverUsers: Array<{ uuid?: string; email?: string }>,
+  approverGroups: string[]
+): Promise<boolean | null> {
+  console.log('[Harness] canCurrentUserApprove — approverUsers:', JSON.stringify(approverUsers), '| approverGroups:', JSON.stringify(approverGroups));
+
+  // No restrictions configured → anyone can approve
+  if (!approverUsers.length && !approverGroups.length) {
+    console.log('[Harness] canCurrentUserApprove → no restrictions, allowing');
+    return true;
+  }
+
+  const user = await getCurrentUser(config);
+  if (!user) {
+    console.warn('[Harness] canCurrentUserApprove → could not fetch current user, defaulting to null');
+    return null;
+  }
+  console.log('[Harness] canCurrentUserApprove — current user:', JSON.stringify(user));
+
+  // Direct user match (uuid or email)
+  const directMatch = approverUsers.some(
+    u => (u.uuid && u.uuid === user.uuid) ||
+         (u.email && u.email.toLowerCase() === user.email.toLowerCase())
+  );
+  if (directMatch) {
+    console.log('[Harness] canCurrentUserApprove → direct user match');
+    return true;
+  }
+
+  // No groups to check
+  if (!approverGroups.length) {
+    console.log('[Harness] canCurrentUserApprove → no group match and no groups to check → false');
+    return false;
+  }
+
+  // Check each group individually — runs in parallel, short-circuits on first match
+  console.log('[Harness] canCurrentUserApprove — checking groups:', approverGroups);
+  const results = await Promise.all(approverGroups.map(g => isUserInGroup(config, g, user.uuid)));
+  const result = results.some(Boolean);
+  console.log('[Harness] canCurrentUserApprove → group check result:', result);
+  return result;
+}

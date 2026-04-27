@@ -1,0 +1,197 @@
+{
+  "name": "harness-vscode",
+  "displayName": "Harness",
+  "description": "Harness pipeline execution — directly in VS Code",
+  "version": "0.1.0",
+  "publisher": "harness",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "icon": "icons/harness-logo.png",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "harness",
+          "title": "Harness",
+          "icon": "icons/harness.svg"
+        }
+      ]
+    },
+    "views": {
+      "harness": [
+        {
+          "type": "webview",
+          "id": "harness.sidebar",
+          "name": "Pipeline"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "harness.configureApiKey",
+        "title": "Harness: Configure API Key"
+      },
+      {
+        "command": "harness.clearApiKey",
+        "title": "Harness: Clear API Key"
+      },
+      {
+        "command": "harness.selectProject",
+        "title": "Harness: Select Org & Project"
+      },
+      {
+        "command": "harness.switchProject",
+        "title": "Harness: Switch Project (This Workspace)"
+      },
+      {
+        "command": "harness.refreshNow",
+        "title": "Harness: Refresh Pipeline Status"
+      },
+      {
+        "command": "harness.openInHarness",
+        "title": "Harness: Open Execution in Browser"
+      },
+      {
+        "command": "harness.rerunStage",
+        "title": "Harness: Re-run Failed Stage"
+      },
+      {
+        "command": "harness.rerunTest",
+        "title": "Harness: Re-run Test via Harness"
+      },
+      {
+        "command": "harness.exportLastExecution",
+        "title": "Harness: Export Current Execution to JSON"
+      },
+      {
+        "command": "harness.showDebugOutput",
+        "title": "Harness: Show Debug Output"
+      },
+      {
+        "command": "harness.debugFmeFlags",
+        "title": "Harness: Debug FME Flags"
+      }
+    ],
+    "languages": [
+      {
+        "id": "harness-log",
+        "aliases": [
+          "Harness Log"
+        ],
+        "extensions": [
+          ".harness-log"
+        ]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "harness-log",
+        "scopeName": "text.harness-log",
+        "path": "./syntaxes/log.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Harness",
+      "properties": {
+        "harness.baseUrl": {
+          "type": "string",
+          "default": "https://app.harness.io",
+          "description": "Harness instance URL. Change for on-prem deployments."
+        },
+        "harness.accountIdentifier": {
+          "type": "string",
+          "default": "",
+          "description": "Harness account ID (Account Settings → Overview)."
+        },
+        "harness.orgIdentifier": {
+          "type": "string",
+          "default": "default",
+          "description": "Default Harness organization identifier."
+        },
+        "harness.projectIdentifier": {
+          "type": "string",
+          "default": "",
+          "description": "Default Harness project identifier."
+        },
+        "harness.pollingIntervalSeconds": {
+          "type": "number",
+          "default": 10,
+          "minimum": 5,
+          "maximum": 120,
+          "description": "Poll interval in seconds during active pipeline runs."
+        },
+        "harness.diffAwareSTO": {
+          "type": "boolean",
+          "default": true,
+          "description": "Limit STO annotations to files changed in the current diff only."
+        },
+        "harness.defaultView": {
+          "type": "string",
+          "enum": [
+            "thisCommit",
+            "allExecutions"
+          ],
+          "enumDescriptions": [
+            "Show the pipeline for your current HEAD commit (default)",
+            "Show the full project execution history list"
+          ],
+          "default": "thisCommit",
+          "description": "Which view opens by default when the Harness panel loads."
+        },
+        "harness.fmeSdkKey": {
+          "type": "string",
+          "default": "",
+          "description": "Harness FME (Feature Management & Experimentation) SDK key. Get it from: FME → Admin → SDK Keys → Client-side"
+        }
+      }
+    },
+    "walkthroughs": [
+      {
+        "id": "harness.gettingStarted",
+        "title": "Get Started with Harness",
+        "description": "Connect to your Harness account and watch your pipeline live.",
+        "steps": [
+          {
+            "id": "harness.configureApiKey",
+            "title": "Configure your API key",
+            "description": "Enter your Harness API key to authenticate.\n[Configure API Key](command:harness.configureApiKey)",
+            "completionEvents": [
+              "onCommand:harness.configureApiKey"
+            ]
+          },
+          {
+            "id": "harness.openSidebar",
+            "title": "Push a commit and watch your pipeline",
+            "description": "Open the Harness panel in the activity bar to see live pipeline status.\n[Open Harness Panel](command:harness.sidebar.focus)",
+            "completionEvents": [
+              "onView:harness.sidebar"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.24.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@splitsoftware/splitio": "^11.11.1"
+  }
+}
