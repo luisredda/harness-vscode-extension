@@ -761,6 +761,57 @@ When user asks a question, the extension includes:
 
 ---
 
+## Logging & Debugging
+
+The extension uses a configurable logger (`src/utils/logger.ts`) that respects the `harness.logLevel` setting.
+
+**Log Levels:**
+- `off` — No console output (production mode)
+- `error` — Errors only
+- `warn` — Errors + warnings  
+- `info` — Errors + warnings + info messages (default, recommended)
+- `debug` — All logs including debug traces (development mode)
+
+**Configuration:**
+```json
+// settings.json or VS Code Settings UI
+{
+  "harness.logLevel": "debug"  // "off" | "error" | "warn" | "info" | "debug"
+}
+```
+
+**Usage Pattern:**
+```typescript
+import { logger } from './utils/logger';
+
+// Debug traces (only shown when logLevel = 'debug')
+logger.debug('Component', 'Detailed trace message', { data });
+
+// Info messages (shown in 'info' and 'debug' modes)
+logger.info('Component', 'Operation started', context);
+
+// Warnings (shown in 'warn', 'info', 'debug' modes)
+logger.warn('Component', 'Potential issue detected', details);
+
+// Errors (always shown unless logLevel = 'off')
+logger.error('Component', 'Operation failed:', error);
+
+// Bypass filtering (use sparingly)
+logger.always('Component', 'Critical message');
+```
+
+**Best Practices:**
+- Use `debug()` for verbose traces, loops, and detailed state dumps
+- Use `info()` for high-level operation flow (started, completed, sent)
+- Use `warn()` for recoverable issues, fallbacks, or unexpected states
+- Use `error()` for failures that require attention
+- Keep the first argument short (component/module name) for consistent formatting
+
+**Debug Output Channel:**
+For pipeline execution debugging, use `Harness: Show Debug Output` command to view full execution JSON payloads.
+
+---
+
 ## Known Issues / TODO
 
 1. **Pipeline Re-run API endpoint** — UI button implemented but API endpoint returns 404. Tested multiple endpoint variations:
@@ -770,15 +821,17 @@ When user asks a question, the extension includes:
    
    All return 404/400. Need to find correct Harness API endpoint for pipeline re-run with original inputs. Implementation exists in `src/api/rerunService.ts` and UI in both enhanced/simple themes.
 
-2. **AIDA RCA** — `POST /aida/api/v1/root-cause-analysis` returns 404. Correct endpoint unknown. Needs research against current Harness API docs or network inspection in the Harness UI.
+2. **AIDA RCA** — Disabled in `executionDispatcher.ts` (endpoint returns 404). Implementation preserved but commented out. To re-enable when endpoint is fixed, uncomment lines in dispatcher and imports.
 
-3. **"Ask Harness AI" input** — Rendered in footer but does nothing. Needs AIDA chat API integration once endpoint is confirmed.
+3. **STO (Security Testing Orchestration)** — Disabled in `executionDispatcher.ts` (will be implemented later). Implementation preserved but commented out. To re-enable, uncomment lines in dispatcher and imports.
 
-4. ~~**FME (Feature Management)**~~ — Implemented. Uses Split.io SDK to fetch feature flags from Harness. Currently gates log viewer variations (`inline` vs `expanded`) and theme variations (`simple` vs `enhanced`).
+4. **"Ask Harness AI" input** — Rendered in footer but does nothing. Needs AIDA chat API integration once endpoint is confirmed.
 
-5. ~~**Approval permission check**~~ — Implemented. Buttons gated on group membership via `GET /ng/api/user-groups/{id}/member/{uuid}`.
+5. ~~**FME (Feature Management)**~~ — Implemented. Uses Split.io SDK to fetch feature flags from Harness. Currently gates log viewer variations (`inline` vs `expanded`) and theme variations (`simple` vs `enhanced`).
 
-6. **Harness FF (Feature Flags) SDK detection** — Not yet implemented. Future: scan open files for `@harnessio/ff-*-sdk` calls and display flag state inline from `/cf/admin/features/{key}`.
+6. ~~**Approval permission check**~~ — Implemented. Buttons gated on group membership via `GET /ng/api/user-groups/{id}/member/{uuid}`.
+
+7. **Harness FF (Feature Flags) SDK detection** — Not yet implemented. Future: scan open files for `@harnessio/ff-*-sdk` calls and display flag state inline from `/cf/admin/features/{key}`.
 
 ---
 
