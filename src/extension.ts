@@ -20,6 +20,7 @@ import { detectAITools } from './ai/detector';
 import { configureMCP } from './ai/mcpConfigurer';
 import { buildPrompt } from './ai/promptBuilder';
 import { launchAI } from './ai/launcher';
+import { logger } from './utils/logger';
 
 // Global state key for AI tool preference
 const AI_TOOL_PREFERENCE_KEY = 'harness.aiToolPreference';
@@ -74,7 +75,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try {
       await initFmeClient(fmeSdkKey, currentConfig, async () => {
         // Callback when FME flags update - send new GIT_CONTEXT to webview
-        console.log('[FME] Flags updated, sending new GIT_CONTEXT to webview');
+        logger.debug('FME', 'Flags updated, sending new GIT_CONTEXT to webview');
         const ctx = await gitCtx.getGitContext();
         const config = await configManager.getConfig();
         if (config) {
@@ -98,7 +99,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       });
     } catch (err) {
-      console.warn('[FME] Failed to initialize:', err);
+      logger.warn('FME', 'Failed to initialize:', err);
     }
   }
 
@@ -132,6 +133,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Route webview messages back to VS Code commands
   bridge.onMessage(async (msg: unknown) => {
     const m = msg as { type: string; command?: string; url?: string; approvalInstanceId?: string; action?: string; comments?: string; page?: number; filter?: string; planExecutionId?: string; pipelineIdentifier?: string; pipelineId?: string; pinnedPipelines?: string[] };
+
+    logger.debug('Extension', 'Bridge received message:', m.type);
+
     if (m.type === 'command') {
       if (m.command === 'harness.openUrl' && m.url) {
         vscode.env.openExternal(vscode.Uri.parse(m.url));
@@ -252,11 +256,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       console.log('[Harness] Saved pinned pipelines:', { count: pipelines.length, key });
     } else if (m.type === 'AI_SEND_MESSAGE') {
       // Handle AI question from webview
+      logger.debug('Extension', 'AI_SEND_MESSAGE received!', msg);
       const aiMsg = m as any;
-      if (!aiMsg.question) return;
 
-      console.log('[AI] Sending question to AI tool:', { question: aiMsg.question.substring(0, 50) + '...' });
-      console.log('[AI] Execution context from webview:', aiMsg.executionContext);
+      if (!aiMsg.question) {
+        logger.debug('Extension', 'No question in message, returning early');
+        return;
+      }
+
+      logger.info('AI', 'Sending question to AI tool:', { question: aiMsg.question.substring(0, 50) + '...' });
+      logger.debug('AI', 'Execution context from webview:', aiMsg.executionContext);
 
       try {
         // Build execution context for prompt building (minimal - let MCP fetch details)
@@ -265,7 +274,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         if (aiMsg.executionContext?.planExecutionId) {
           // Webview sent execution context - use it!
-          console.log('[AI] Using execution context from webview message');
+          logger.debug('AI', 'Using execution context from webview message');
           executionContext = {
             pipelineIdentifier: aiMsg.executionContext.pipelineIdentifier || aiMsg.executionContext.pipelineName?.replace(/\s+/g, '_'),
             planExecutionId: aiMsg.executionContext.planExecutionId,
@@ -276,7 +285,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           };
         } else if (currentViewedExecution) {
           // Fallback to tracked execution
-          console.log('[AI] Using tracked execution (fallback)');
+          logger.debug('AI', 'Using tracked execution (fallback)');
           const ex = currentViewedExecution.execution;
           executionContext = {
             pipelineIdentifier: ex?.pipelineIdentifier,
@@ -291,8 +300,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const prompt = buildPrompt(aiMsg.question, executionContext);
 
         // Debug: Log the actual prompt being sent
-        console.log('[AI] Generated prompt:', prompt);
-        console.log('[AI] Execution context:', executionContext);
+        logger.debug('AI', 'Generated prompt:', prompt);
+        logger.debug('AI', 'Execution context:', executionContext);
 
         // Detect which tool to use (with user preference)
         const detection = await detectAITools(getAIToolPreference());
@@ -302,6 +311,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             message: 'No AI tool detected. Please install Claude Code.',
           });
           return;
+        }
+
+        // Cursor-specific handling - simplified for compatibility
+        const tool = detection.tools.find(t => t.id === detection.activeTool);
+        if (tool && tool.id === 'cursor') {
+          logger.info('AI', 'Cursor tool detected, launching...');
+          // Just launch - Cursor will handle plugin/OAuth prompts automatically
+          // Don't check cursorMcpMode or cursorOAuthReady - let Cursor handle it
         }
 
         // Launch AI tool
@@ -334,7 +351,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
-        console.error('[AI] Failed to process question:', msg);
+        logger.error('AI', 'Failed to process question:', msg);
         bridge.send({
           type: 'AI_ERROR',
           message: msg,
@@ -342,7 +359,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     } else if (m.type === 'AI_CONFIGURE_MCP') {
       // Configure Harness MCP server
-      console.log('[AI] Configuring MCP...');
+      logger.info('AI', 'Configuring MCP...');
+
+      // Cursor uses the Harness Plugin — never show the MCP configure panel for Cursor
+      const detection = await detectAITools(getAIToolPreference());
+      const tool = detection.tools.find(t => t.id === detection.activeTool);
+      if (tool && tool.id === 'cursor') {
+        console.log('[AI] Skipping MCP configuration for Cursor (uses plugin)');
+        return;
+      }
 
       if (!currentConfig) {
         bridge.send({
@@ -417,6 +442,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
       } else {
         console.warn('[AI] Selected tool not available:', aiMsg.toolId);
+      }
+    } else if (m.type === 'AI_CURSOR_INSTALL_PLUGIN') {
+      // Open Cursor Marketplace for plugin installation
+      console.log('[AI] Opening Cursor Marketplace for Harness Plugin');
+      await vscode.env.openExternal(
+        vscode.Uri.parse('https://cursor.com/marketplace/harness')
+      );
+    } else if (m.type === 'AI_CURSOR_CONNECT_OAUTH') {
+      // Send prompt to Cursor to help user with authentication
+      logger.info('AI', 'Sending authentication help prompt to Cursor');
+
+      try {
+        const prompt = 'Authenticate to the Harness MCP server';
+
+        const result = await launchAI({
+          prompt,
+          toolId: 'cursor',
+          timeout: 60000,
+        });
+
+        if (result.type === 'launched') {
+          bridge.send({
+            type: 'AI_LAUNCHED',
+            tool: 'cursor',
+          });
+        } else if (result.type === 'error') {
+          bridge.send({
+            type: 'AI_ERROR',
+            message: result.error || 'Failed to open Cursor',
+          });
+        }
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        logger.error('AI', 'Failed to launch Cursor for authentication help:', msg);
+        bridge.send({
+          type: 'AI_ERROR',
+          message: msg,
+        });
       }
     }
   });

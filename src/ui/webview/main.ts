@@ -1300,6 +1300,10 @@ function render(): void {
   const scrollContainer = document.querySelector('.panel-scroll') as HTMLElement;
   const scrollY = scrollContainer ? scrollContainer.scrollTop : 0;
 
+  // Preserve scroll position of AI response overlay
+  const aiResponseBody = document.querySelector('.aix-response-body') as HTMLElement;
+  const aiResponseScrollY = aiResponseBody ? aiResponseBody.scrollTop : 0;
+
   // Preserve focus state for inputs
   const activeElement = document.activeElement as HTMLInputElement;
   const wasSearchFocused = activeElement?.dataset?.action === 'searchPipelines';
@@ -1319,6 +1323,14 @@ function render(): void {
     const newScrollContainer = document.querySelector('.panel-scroll') as HTMLElement;
     if (newScrollContainer) {
       newScrollContainer.scrollTop = scrollY;
+    }
+  }
+
+  // Restore scroll position on AI response overlay
+  if (aiResponseScrollY > 0) {
+    const newAiResponseBody = document.querySelector('.aix-response-body') as HTMLElement;
+    if (newAiResponseBody) {
+      newAiResponseBody.scrollTop = aiResponseScrollY;
     }
   }
 
@@ -1536,6 +1548,7 @@ function pinFooter(): string {
 const AI_TOOL_META: Record<string, { name: string; sub: string | null }> = {
   'claudecode-cli': { name: 'Claude Code', sub: 'CLI' },
   'claudecode-ext': { name: 'Claude Code', sub: 'Extension' },
+  'cursor': { name: 'Cursor', sub: null },
 };
 
 // Tool glyphs
@@ -1551,8 +1564,18 @@ function claudeExtGlyph(): string {
   </svg>`;
 }
 
+function cursorGlyph(): string {
+  // Official Cursor cube logo (CUBE_2D_DARK.svg)
+  return `<svg width="13" height="13" viewBox="0 0 466.73 532.09" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path fill="currentColor" d="M457.43,125.94L244.42,2.96c-6.84-3.95-15.28-3.95-22.12,0L9.3,125.94c-5.75,3.32-9.3,9.46-9.3,16.11v247.99c0,6.65,3.55,12.79,9.3,16.11l213.01,122.98c6.84,3.95,15.28,3.95,22.12,0l213.01-122.98c5.75-3.32,9.3-9.46,9.3-16.11v-247.99c0-6.65-3.55-12.79-9.3-16.11h-.01ZM444.05,151.99l-205.63,356.16c-1.39,2.4-5.06,1.42-5.06-1.36v-233.21c0-4.66-2.49-8.97-6.53-11.31L24.87,145.67c-2.4-1.39-1.42-5.06,1.36-5.06h411.26c5.84,0,9.49,6.33,6.57,11.39h-.01Z"/>
+  </svg>`;
+}
+
 function getAIToolGlyph(toolId: string): string {
-  return toolId === 'claudecode-cli' ? claudeCliGlyph() : toolId === 'claudecode-ext' ? claudeExtGlyph() : '';
+  if (toolId === 'claudecode-cli') return claudeCliGlyph();
+  if (toolId === 'claudecode-ext') return claudeExtGlyph();
+  if (toolId === 'cursor') return cursorGlyph();
+  return '';
 }
 
 // Icon helpers
@@ -1626,6 +1649,12 @@ function renderAIMCPCard(): string {
   if (state.aiOverlay !== 'mcp-setup' && state.aiOverlay !== 'mcp-done') return '';
   const activeTool = state.aiDetection?.activeTool;
   if (!activeTool) return '';
+
+  // Never show MCP config card for Cursor (uses plugin instead)
+  if (activeTool === 'cursor') {
+    return '';
+  }
+
   const meta = AI_TOOL_META[activeTool];
   const glyph = getAIToolGlyph(activeTool);
   if (state.aiOverlay === 'mcp-done') {
@@ -1739,36 +1768,67 @@ function aiFooter(): string {
   const aiState = state.aiState;
   const question = state.aiQuestion;
   const detection = state.aiDetection;
-  const placeholders: Record<typeof aiState, string> = {
+
+  // Calculate effective state based on active tool
+  let effectiveState = aiState;
+  const activeTool = detection?.tools.find(t => t.id === detection.activeTool);
+
+  // Only override state for configuration-related states
+  // Don't override dynamic states like 'sending', 'error', 'detecting'
+  if (activeTool && (aiState === 'ready' || aiState === 'unconfigured')) {
+    // Cursor-specific states
+    if (activeTool.id === 'cursor') {
+      if ((activeTool as any).cursorMcpMode === 'none') {
+        effectiveState = 'cursor-no-plugin' as any;
+      } else if ((activeTool as any).cursorMcpMode === 'plugin' && !(activeTool as any).cursorOAuthReady) {
+        effectiveState = 'cursor-oauth-pending' as any;
+      } else if (activeTool.mcpReady) {
+        effectiveState = 'ready';
+      } else {
+        effectiveState = 'unconfigured';
+      }
+    }
+    // Claude Code tools (CLI/Extension) - use mcpReady status
+    else {
+      effectiveState = activeTool.mcpReady ? 'ready' : 'unconfigured';
+    }
+  }
+
+  const placeholders: Record<typeof aiState | 'cursor-no-plugin' | 'cursor-oauth-pending', string> = {
     detecting: 'Detecting AI tools…',
     none: 'Install Claude Code to ask questions',
     unconfigured: 'Configure MCP to ask questions',
     ready: 'Ask about this pipeline…',
     sending: question || 'Thinking…',
     error: 'Ask about this pipeline…',
+    'cursor-no-plugin': 'Install Harness Plugin for Cursor to continue',
+    'cursor-oauth-pending': 'Connect your Harness account in Cursor',
   };
-  const inputDisabled = aiState === 'detecting' || aiState === 'none' || aiState === 'sending';
-  const sendDisabled = aiState !== 'ready' || !state.aiQuestion.trim();
+  const inputDisabled = effectiveState === 'detecting' || effectiveState === 'none' || effectiveState === 'sending' || effectiveState === 'cursor-no-plugin' || effectiveState === 'cursor-oauth-pending';
+  const sendDisabled = effectiveState !== 'ready' || !state.aiQuestion.trim();
   let badgeHtml = '';
-  if (aiState === 'detecting') badgeHtml = `<div class="aix-detect"><span class="aix-spinner"></span></div>`;
-  else if (aiState === 'none') badgeHtml = renderAIToolBadge(null, false, false);
-  else if (detection?.activeTool) badgeHtml = renderAIToolBadge(detection.activeTool, (detection.tools.length || 0) > 1, aiState === 'unconfigured');
-  const sendContent = aiState === 'sending' ? '<span class="aix-send-spin"></span>' : sendIcon();
+  if (effectiveState === 'detecting') badgeHtml = `<div class="aix-detect"><span class="aix-spinner"></span></div>`;
+  else if (effectiveState === 'none') badgeHtml = renderAIToolBadge(null, false, false);
+  else if (detection?.activeTool) badgeHtml = renderAIToolBadge(detection.activeTool, (detection.tools.length || 0) > 1, effectiveState === 'unconfigured' || effectiveState === 'cursor-no-plugin' || effectiveState === 'cursor-oauth-pending');
+  const sendContent = effectiveState === 'sending' ? '<span class="aix-send-spin"></span>' : sendIcon();
   let statusHtml = '';
-  if (aiState !== 'none') {
-    const statusLines: Record<typeof aiState, { dot: string; text: string; link?: string }> = {
+  if (effectiveState !== 'none') {
+    const statusLines: Record<typeof aiState | 'cursor-no-plugin' | 'cursor-oauth-pending', { dot: string; text: string; link?: string }> = {
       detecting: { dot: 'pulse', text: 'Detecting AI tools…' },
       none: { dot: 'err', text: 'No AI tool found', link: 'Install Claude Code ↗' },
       unconfigured: { dot: 'warn', text: `MCP not configured · ${AI_TOOL_META[detection?.activeTool || '']?.name || ''}`, link: 'Configure MCP ›' },
       ready: { dot: 'ok', text: `MCP ready · ${AI_TOOL_META[detection?.activeTool || '']?.name || ''}${AI_TOOL_META[detection?.activeTool || '']?.sub ? ` (${AI_TOOL_META[detection?.activeTool || ''].sub})` : ''}` },
       sending: { dot: 'pulse', text: `Querying ${AI_TOOL_META[detection?.activeTool || '']?.name || ''}…` },
       error: { dot: 'err', text: state.aiError || 'Request failed', link: 'Retry' },
+      'cursor-no-plugin': { dot: 'warn', text: 'Harness Plugin not installed', link: 'Install Plugin ↗' },
+      'cursor-oauth-pending': { dot: 'warn', text: 'Not authenticated in Harness · Cursor', link: 'Auth in Chat' },
     };
-    const s = statusLines[aiState];
-    const linkHtml = s.link ? `<button type="button" class="aix-status-link ${aiState === 'unconfigured' ? 'is-primary' : ''}" data-action="${aiState === 'unconfigured' ? 'showAIMCPSetup' : 'retryAI'}">${esc(s.link)}</button>` : '';
+    const s = statusLines[effectiveState];
+    const linkAction = effectiveState === 'cursor-no-plugin' ? 'cursorInstallPlugin' : effectiveState === 'cursor-oauth-pending' ? 'cursorConnectOAuth' : effectiveState === 'unconfigured' ? 'showAIMCPSetup' : 'retryAI';
+    const linkHtml = s.link ? `<button type="button" class="aix-status-link ${effectiveState === 'unconfigured' || effectiveState === 'cursor-no-plugin' || effectiveState === 'cursor-oauth-pending' ? 'is-primary' : ''}" data-action="${linkAction}">${esc(s.link)}</button>` : '';
     statusHtml = `<div class="aix-status">${statusDot(s.dot as any)}<span class="aix-status-txt">${esc(s.text)}</span>${linkHtml}</div>`;
   }
-  return `<div class="aix aix-${aiState}">${renderAIToolPicker()}${renderAIMCPCard()}${renderAIResponse()}${renderAILaunched()}<div class="aix-bar">${badgeHtml}<input class="aix-inp" placeholder="${esc(placeholders[aiState])}" value="${esc(question)}" ${inputDisabled ? 'disabled' : ''} data-action="aiInput"/><button type="button" class="aix-send" ${sendDisabled ? 'disabled' : ''} data-action="sendAI">${sendContent}</button></div>${statusHtml}</div>`;
+  return `<div class="aix aix-${effectiveState}">${renderAIToolPicker()}${renderAIMCPCard()}${renderAIResponse()}${renderAILaunched()}<div class="aix-bar">${badgeHtml}<input class="aix-inp" placeholder="${esc(placeholders[effectiveState])}" value="${esc(question)}" ${inputDisabled ? 'disabled' : ''} data-action="aiInput"/><button type="button" class="aix-send" ${sendDisabled ? 'disabled' : ''} data-action="sendAI">${sendContent}</button></div>${statusHtml}</div>`;
 }
 
 // ── Git bar ────────────────────────────────────────────────────────────────
@@ -3740,7 +3800,13 @@ function bind(): void {
     if (action === 'sendAI') {
       e.preventDefault();
       e.stopPropagation();
-      console.log('[AI] Send clicked');
+      console.log('[AI] Send button clicked!');
+      console.log('[AI] Current state:', {
+        aiState: state.aiState,
+        question: state.aiQuestion,
+        activeTool: state.aiDetection?.activeTool,
+        mcpReady: state.aiDetection?.tools.find(t => t.id === state.aiDetection?.activeTool)?.mcpReady
+      });
       sendAIMessage();
     } else if (action === 'toggleAIToolPicker') {
       e.preventDefault();
@@ -3803,6 +3869,14 @@ function bind(): void {
       state.aiOverlay = null;
       state.aiResponse = null;
       scheduleRender(true);
+    } else if (action === 'cursorInstallPlugin') {
+      e.preventDefault();
+      e.stopPropagation();
+      vscode.postMessage({ type: 'AI_CURSOR_INSTALL_PLUGIN' });
+    } else if (action === 'cursorConnectOAuth') {
+      e.preventDefault();
+      e.stopPropagation();
+      vscode.postMessage({ type: 'AI_CURSOR_CONNECT_OAUTH' });
     }
   });
 
@@ -3814,12 +3888,22 @@ function q(sel: string, handler: () => void): void {
 }
 
 function sendAIMessage(): void {
-  console.log('[AI] Send clicked', { question: state.aiQuestion, aiState: state.aiState });
-  if (!state.aiQuestion.trim() || state.aiState !== 'ready') {
-    console.log('[AI] Send blocked - invalid state');
+  console.log('[AI] sendAIMessage() called');
+  console.log('[AI] Question:', state.aiQuestion);
+  console.log('[AI] State:', state.aiState);
+  console.log('[AI] Detection:', state.aiDetection);
+
+  if (!state.aiQuestion.trim()) {
+    console.log('[AI] ❌ Send blocked - question is empty');
     return;
   }
 
+  if (state.aiState !== 'ready') {
+    console.log('[AI] ❌ Send blocked - state is not ready, current state:', state.aiState);
+    return;
+  }
+
+  console.log('[AI] ✅ Validation passed, sending message...');
   const question = state.aiQuestion.trim();
   state.aiQuestion = '';
   state.aiState = 'sending';
@@ -3851,11 +3935,14 @@ function sendAIMessage(): void {
   console.log('[Webview AI] Current state.executions:', state.executions.size);
   console.log('[Webview AI] Current state.detailExecId:', state.detailExecId);
 
-  vscode.postMessage({
+  const message = {
     type: 'AI_SEND_MESSAGE',
     question,
     executionContext
-  });
+  };
+  console.log('[Webview AI] Posting message to extension:', message);
+  vscode.postMessage(message);
+  console.log('[Webview AI] ✅ Message posted to extension host');
 }
 
 // Read theme variation from initial HTML injection (set by FME evaluation during sidebar init)
