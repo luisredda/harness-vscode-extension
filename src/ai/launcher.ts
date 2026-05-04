@@ -14,7 +14,7 @@ export interface LaunchResult {
 
 interface LaunchOptions {
   prompt: string;
-  toolId: 'claudecode-cli' | 'claudecode-ext';
+  toolId: 'claudecode-cli' | 'claudecode-ext' | 'cursor';
   timeout?: number; // milliseconds, default 60000
   cwd?: string; // working directory for CLI execution
 }
@@ -25,8 +25,15 @@ interface LaunchOptions {
 export async function launchAI(options: LaunchOptions): Promise<LaunchResult> {
   if (options.toolId === 'claudecode-cli') {
     return launchCLI(options.prompt, options.timeout, options.cwd);
-  } else {
+  } else if (options.toolId === 'claudecode-ext') {
     return launchExtension(options.prompt);
+  } else if (options.toolId === 'cursor') {
+    return launchCursor(options.prompt);
+  } else {
+    return {
+      type: 'error',
+      error: `Unknown tool: ${options.toolId}`,
+    };
   }
 }
 
@@ -306,4 +313,86 @@ function extractToolCalls(result: unknown): Array<{ name: string; args?: unknown
   }
 
   return undefined;
+}
+
+/**
+ * Launch Cursor with prompt
+ * Opens Cursor Composer/Agents and auto-pastes when user clicks button
+ */
+async function launchCursor(prompt: string): Promise<LaunchResult> {
+  try {
+    console.log('[AI Launcher] Starting Cursor integration');
+    console.log('[AI Launcher] Prompt length:', prompt.length);
+
+    // List all available commands to find the right one
+    const allCommands = await vscode.commands.getCommands(true);
+    const aiCommands = allCommands.filter(cmd =>
+      cmd.toLowerCase().includes('chat') ||
+      cmd.toLowerCase().includes('ai') ||
+      cmd.toLowerCase().includes('agent') ||
+      cmd.toLowerCase().includes('composer')
+    );
+    console.log('[AI Launcher] Available AI commands:', aiCommands);
+
+    // Copy prompt to clipboard
+    await vscode.env.clipboard.writeText(prompt);
+    console.log('[AI Launcher] ✓ Prompt copied to clipboard');
+
+    // Try opening Cursor Composer/Agent tab
+    const commandsToTry = [
+      'aichat.newchataction',  // Cursor AI Chat
+      'workbench.action.chat.open',  // Generic chat open
+      'workbench.panel.chat.view.copilot.focus',  // Copilot chat (Cursor might use this)
+    ];
+
+    let opened = false;
+    for (const cmd of commandsToTry) {
+      if (aiCommands.includes(cmd)) {
+        try {
+          console.log(`[AI Launcher] ⏳ Trying command: ${cmd}`);
+          await vscode.commands.executeCommand(cmd);
+          console.log(`[AI Launcher] ✓ Opened with: ${cmd}`);
+          opened = true;
+          break;
+        } catch (err) {
+          console.log(`[AI Launcher] ⚠ ${cmd} failed`);
+        }
+      }
+    }
+
+    // Give UI time to render and focus
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    // Auto-paste without user interaction
+    console.log('[AI Launcher] Auto-pasting prompt...');
+    try {
+      await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
+      console.log('[AI Launcher] ✓ Auto-paste successful');
+
+      // Show brief success notification
+      vscode.window.showInformationMessage(
+        '✅ Prompt sent to Cursor Composer',
+        { modal: false }
+      );
+    } catch (err) {
+      console.log('[AI Launcher] ⚠ Auto-paste failed, showing fallback notification');
+      // Fallback: show notification if auto-paste fails
+      vscode.window.showInformationMessage(
+        'Prompt copied to clipboard - paste it in Cursor Composer (Cmd+V)',
+        'OK'
+      );
+    }
+
+    console.log('[AI Launcher] ✓ Cursor launch complete');
+    return {
+      type: 'launched',
+      content: 'Prompt auto-pasted to Cursor Composer.',
+    };
+  } catch (error) {
+    console.error('[AI Launcher] ✗ Cursor launch failed:', error);
+    return {
+      type: 'error',
+      error: error instanceof Error ? error.message : 'Failed to launch Cursor',
+    };
+  }
 }

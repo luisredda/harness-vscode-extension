@@ -58,12 +58,16 @@ export class WebviewBridge {
     this.handlerDisposable = view.webview.onDidReceiveMessage((msg: unknown) => {
       const m = msg as { type?: string };
 
+      console.log('[WebviewBridge] Received message from webview:', m?.type);
+
       if (!this.webviewReady && m?.type === 'WEBVIEW_READY') {
+        console.log('[WebviewBridge] WEBVIEW_READY received, setting webviewReady = true');
         this.webviewReady = true;
         this.flushQueue(view);
         return; // don't forward WEBVIEW_READY to extension handler
       }
 
+      console.log('[WebviewBridge] Forwarding message to extension handler, webviewReady:', this.webviewReady, 'hasHandler:', !!this.messageHandler);
       this.messageHandler?.(msg);
     });
   }
@@ -112,6 +116,7 @@ export class WebviewBridge {
   }
 
   onMessage(handler: (msg: unknown) => void): void {
+    console.log('[WebviewBridge] onMessage handler registered');
     this.messageHandler = handler;
     // The combined handler in setView calls this.messageHandler dynamically,
     // so no re-registration needed even if onMessage is called after setView.

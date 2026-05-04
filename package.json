@@ -2,7 +2,7 @@
   "name": "harness-vscode",
   "displayName": "Harness",
   "description": "Harness pipeline execution — directly in VS Code",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "harness",
   "engines": {
     "vscode": "^1.85.0"
@@ -159,6 +159,25 @@
           "type": "string",
           "default": "",
           "description": "Harness FME (Feature Management & Experimentation) SDK key. Get it from: FME → Admin → SDK Keys → Client-side"
+        },
+        "harness.logLevel": {
+          "type": "string",
+          "enum": [
+            "off",
+            "error",
+            "warn",
+            "info",
+            "debug"
+          ],
+          "enumDescriptions": [
+            "No logs (production mode)",
+            "Errors only",
+            "Errors and warnings",
+            "Errors, warnings, and info messages (recommended)",
+            "All logs including debug traces (development mode)"
+          ],
+          "default": "info",
+          "description": "Controls console output verbosity. Use 'debug' for troubleshooting, 'info' for normal operation, 'error' for production."
         }
       }
     },

@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.1.1] - 2026-05-04
+
+### Added
+- **Cursor AI integration**: Full support for Cursor editor with official Harness Cursor Plugin
+  - Auto-detection of Cursor installation and Harness Plugin
+  - OAuth authentication detection for plugin-based MCP
+  - Auto-paste functionality for seamless prompt delivery
+  - Fallback to local MCP configuration (harness-mcp-v2)
+  - Official Cursor cube logo in AI tool picker
+- **Configurable logging system**: Production-grade log level control
+  - New VS Code setting `harness.logLevel` with 5 levels (off/error/warn/info/debug)
+  - Centralized logger utility (`src/utils/logger.ts`)
+  - Applied to extension host and pipeline dispatcher modules
+  - Default: `info` level (recommended for production)
+
+### Fixed
+- AI bar "Thinking..." animation now displays correctly during Claude CLI requests
+- AI response scroll position preserved during re-renders (no more jumping to top)
+- AI bar state now correctly reflects selected tool (Cursor vs Claude Code)
+
+### Removed
+- AIDA root cause analysis API calls (endpoint returns 404, commented out for future re-enable)
+- STO vulnerability findings API calls (deferred to future implementation)
+- Design handoff assets from repository (`handoff/` directory)
+
+### Changed
+- `.gitignore` updated to exclude test files and design assets
+- Added `.vscode/launch.json` and `.vscode/tasks.json` for developer setup
+
 ## [0.1.0] - 2026-04-26
 
 ### Added
