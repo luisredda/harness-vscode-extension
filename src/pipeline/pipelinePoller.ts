@@ -40,6 +40,9 @@ export class PipelinePoller implements vscode.Disposable {
   private detailExecutionId: string | null = null;
   private detailLastStatus: string | null = null;
 
+  // Visibility tracking - pause polling when sidebar is hidden
+  private isVisible: boolean = false;
+
   constructor(
     private readonly client: HarnessClient,
     private readonly config: HarnessConfig,
@@ -58,6 +61,26 @@ export class PipelinePoller implements vscode.Disposable {
     this.lastStatus = null;
     this.stopTimer();
     this.tick();
+  }
+
+  /**
+   * Set visibility state - pauses polling when hidden, resumes when visible
+   */
+  setVisible(visible: boolean): void {
+    const wasVisible = this.isVisible;
+    this.isVisible = visible;
+
+    if (visible && !wasVisible) {
+      // Becoming visible - do immediate refresh to show fresh data
+      console.log('[PipelinePoller] Sidebar became visible - resuming polling');
+      this.lastStatus = null; // Force refresh
+      this.stopTimer();
+      this.tick();
+    } else if (!visible && wasVisible) {
+      // Becoming hidden - stop polling to save resources
+      console.log('[PipelinePoller] Sidebar hidden - pausing polling');
+      this.stopTimer();
+    }
   }
 
   private async watchGit(): Promise<void> {
@@ -105,6 +128,12 @@ export class PipelinePoller implements vscode.Disposable {
   }
 
   private async tick(): Promise<void> {
+    // Skip API calls if sidebar is not visible
+    if (!this.isVisible) {
+      console.log('[PipelinePoller] Skipping tick - sidebar not visible');
+      return;
+    }
+
     try {
       const ctx = await getGitContext();
 

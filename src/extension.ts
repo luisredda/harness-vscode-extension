@@ -112,6 +112,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
+  // Wire up visibility tracking to pause/resume polling
+  sidebarProvider.onVisibilityChange((visible) => {
+    logger.debug('Extension', `Sidebar visibility changed: ${visible}`);
+    poller?.setVisible(visible);
+  });
+
   async function startPoller(): Promise<void> {
     poller?.dispose();
     poller = undefined;
