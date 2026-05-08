@@ -10,16 +10,16 @@
   "categories": [
     "Other"
   ],
-  "icon": "icons/harness-logo.png",
+  "icon": "icons/harness-icon.png",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/thisrohangupta/harness-vscode-extension"
+    "url": "https://github.com/harness/harness-vscode-extension"
   },
   "bugs": {
-    "url": "https://github.com/thisrohangupta/harness-vscode-extension/issues"
+    "url": "https://github.com/harness/harness-vscode-extension/issues"
   },
-  "homepage": "https://github.com/thisrohangupta/harness-vscode-extension#readme",
+  "homepage": "https://github.com/harness/harness-vscode-extension#readme",
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -30,7 +30,7 @@
         {
           "id": "harness",
           "title": "Harness",
-          "icon": "icons/harness.svg"
+          "icon": "icons/harness-icon.png"
         }
       ]
     },
