@@ -1,8 +1,8 @@
 {
   "name": "harness-vscode",
   "displayName": "Harness",
-  "description": "Harness pipeline execution — directly in VS Code",
-  "version": "0.1.1",
+  "description": "Monitor Harness pipelines, view logs, and manage approvals directly in VS Code. Real-time CI/CD visibility without context switching.",
+  "version": "0.1.2",
   "publisher": "harness",
   "engines": {
     "vscode": "^1.85.0"
