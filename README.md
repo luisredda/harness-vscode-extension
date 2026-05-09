@@ -32,7 +32,8 @@ npm run compile
 # Run in VS Code
 # Press F5 to launch Extension Development Host
 
-# Package for distribution
+# Package for distribution (optional)
+npm install -g @vscode/vsce  # Install packaging tool if you don't have it
 npm run package
 # Creates harness-vscode-0.x.x.vsix
 ```
