@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.1.2] - 2026-05-08
+
+### Added
+- **First-run onboarding empty state**: Beautiful setup UI for new users
+  - Shows 3-step preview (Base URL, Personal Access Token, Account ID) before configuration
+  - "Start setup" button launches existing onboarding flow
+  - No popup interruption on first install - user discovers setup naturally in sidebar
+  - Auto-refreshes to normal view after completion (no reload needed)
+  - Consistent "Personal Access Token" terminology throughout onboarding
+- **Smart polling optimization**: Significant reduction in API calls and resource usage
+  - Pauses polling when Harness sidebar is hidden
+  - Pauses polling when VS Code window loses focus
+  - Only polls when sidebar visible AND window focused
+  - Auto-refresh with fresh data when becoming visible/focused
+- **Auto-paste in Claude Code Extension**: Seamless prompt delivery
+  - Automatically pastes prompts after opening Claude Code panel
+  - Removed manual "Paste Now" button for consistent UX with Cursor
+  - 800ms delay for UI focus before auto-paste
+
+### Fixed
+- Cursor AI detection now only works when running inside Cursor editor (not VS Code)
+  - Prevents opening GitHub Copilot when using Harness AI bar in VS Code
+  - Uses `vscode.env.appName` to detect editor context
+- Silent handling of fetch requests when extension not configured
+  - No more error notifications during first-run experience
+  - Empty state UI handles unconfigured state gracefully
+
+### Changed
+- **Icon updates**: Official Harness brand assets
+  - Icon-only logo (no text) for VS Marketplace compatibility
+  - Updated to PNG format (196×196px) for marketplace requirements
+  - SVG preserved for future use
+  - Better consistency with Harness platform UI
+
 ## [0.1.1] - 2026-05-04
 
 ### Added

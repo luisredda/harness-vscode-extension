@@ -2,10 +2,19 @@ import * as vscode from 'vscode';
 import { WebviewBridge } from './webviewBridge';
 
 export class SidebarProvider implements vscode.WebviewViewProvider {
+  private onVisibilityChangeCallback?: (visible: boolean) => void;
+
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly bridge: WebviewBridge
   ) {}
+
+  /**
+   * Register callback to be notified when sidebar visibility changes
+   */
+  onVisibilityChange(callback: (visible: boolean) => void): void {
+    this.onVisibilityChangeCallback = callback;
+  }
 
   async resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -29,6 +38,18 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     // before the bridge flushes its queued messages.
     webviewView.webview.html = this.getHtml(webviewView.webview, themeVariation);
     this.bridge.setView(webviewView);
+
+    // Track visibility changes and notify callback
+    webviewView.onDidChangeVisibility(() => {
+      if (this.onVisibilityChangeCallback) {
+        this.onVisibilityChangeCallback(webviewView.visible);
+      }
+    });
+
+    // Notify initial visibility state
+    if (this.onVisibilityChangeCallback) {
+      this.onVisibilityChangeCallback(webviewView.visible);
+    }
   }
 
   private getHtml(webview: vscode.Webview, themeVariation: 'simple' | 'enhanced'): string {

@@ -112,6 +112,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
+  // Wire up visibility tracking to pause/resume polling
+  sidebarProvider.onVisibilityChange((visible) => {
+    logger.debug('Extension', `Sidebar visibility changed: ${visible}`);
+    poller?.setSidebarVisible(visible);
+  });
+
+  // Wire up window focus tracking to pause/resume polling
+  context.subscriptions.push(
+    vscode.window.onDidChangeWindowState((state) => {
+      logger.debug('Extension', `Window focus changed: ${state.focused}`);
+      poller?.setWindowFocused(state.focused);
+    })
+  );
+
   async function startPoller(): Promise<void> {
     poller?.dispose();
     poller = undefined;
@@ -128,6 +142,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     currentClient = new HarnessClient(config);
     poller = new PipelinePoller(currentClient, config, diagnostics, bridge, outputChannel);
     poller.start();
+
+    // Initialize poller with current window focus state
+    poller.setWindowFocused(vscode.window.state.focused);
   }
 
   // Route webview messages back to VS Code commands
@@ -178,7 +195,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } else if (m.type === 'fetchHistory') {
       console.log('[Harness] fetchHistory message received', { page: m.page, filter: m.filter, pageSize: m.pageSize, pipelineId: m.pipelineId, hasConfig: !!currentConfig });
       if (!currentConfig) {
-        vscode.window.showErrorMessage('Harness: Not configured. Please run "Harness: Configure API Key"');
+        // Silent return - empty state in webview will handle unconfigured state
         return;
       }
       await fetchExecutionHistory(currentConfig, bridge, m.page ?? 0, m.filter ?? 'all', m.pageSize ?? 15, m.pipelineId);
@@ -229,7 +246,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } else if (m.type === 'fetchPipelines') {
       console.log('[Harness] fetchPipelines message received', { hasConfig: !!currentConfig });
       if (!currentConfig) {
-        vscode.window.showErrorMessage('Harness: Not configured. Please run "Harness: Configure API Key"');
+        // Silent return - empty state in webview will handle unconfigured state
         return;
       }
       try {
@@ -581,8 +598,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // ── Commands ──────────────────────────────────────
   context.subscriptions.push(
     vscode.commands.registerCommand('harness.configureApiKey', async () => {
-      await runOnboarding(secretStore);
-      await startPoller();
+      const success = await runOnboarding(secretStore, configManager);
+      if (success) {
+        await startPoller();
+        // Force webview to re-render by sending a refresh signal
+        const ctx = await (await import('./git/gitContext')).getGitContext();
+        const config = await configManager.getConfig();
+        if (config) {
+          const defaultView = vscode.workspace.getConfiguration('harness').get<string>('defaultView', 'pipelines');
+          const { getLogViewerVariation, getWebviewThemeVariation, getAiChatEnabled } = await import('./fme/fmeClient');
+          const logViewerVariation = await getLogViewerVariation();
+          const webviewTheme = getWebviewThemeVariation();
+          const aiChatEnabled = getAiChatEnabled();
+          const ideThemeKind = vscode.window.activeColorTheme.kind;
+          bridge.send({
+            type: 'GIT_CONTEXT',
+            ctx,
+            org: config.orgIdentifier,
+            project: config.projectIdentifier,
+            defaultView,
+            logViewerVariation,
+            webviewTheme,
+            ideThemeKind,
+            aiChatEnabled,
+          });
+        }
+      }
     }),
 
     vscode.commands.registerCommand('harness.selectProject', async () => {
@@ -741,11 +782,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   // ── Initial start ─────────────────────────────────
-  const configured = await runOnboardingIfNeeded(secretStore, configManager);
+  // Check if configured without prompting - user will see empty state in sidebar
+  const configured = await configManager.isConfigured();
   if (configured) {
     await startPoller();
   } else {
     statusBar.setNotConfigured();
+    bridge.send({ type: 'AUTH_ERROR' });
   }
 
   // ── AI Tool Detection (non-blocking) ──────────────
