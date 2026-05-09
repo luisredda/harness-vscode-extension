@@ -35,11 +35,11 @@ export async function runOnboarding(secretStore: SecretStore, configManager?: Co
     .update('baseUrl', baseUrl.replace(/\/$/, ''), vscode.ConfigurationTarget.Global);
 
   const apiKey = await vscode.window.showInputBox({
-    title: 'Harness API Key (2/3)',
-    prompt: 'Account Settings → Access Management → API Keys → Create API Key',
+    title: 'Personal Access Token (2/3)',
+    prompt: 'Open your profile in Harness → My API Keys → generate a new token',
     password: true,
     ignoreFocusOut: true,
-    validateInput: v => (!v || v.trim().length < 10) ? 'API key appears too short' : null,
+    validateInput: v => (!v || v.trim().length < 10) ? 'Personal access token appears too short' : null,
   });
   if (!apiKey) return false;
 

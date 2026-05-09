@@ -2253,6 +2253,11 @@ body {
 }
 .action-btn:hover { background: var(--vscode-button-hoverBackground); }
 
+/* ── Onboarding empty state (Variant B) ───────────── */
+.onboarding-empty {
+  padding: 28px 20px 24px;
+}
+
 /* ── Log unavailable notice ───────────────────────── */
 .log-unavailable {
   padding: 4px 12px 4px 54px;
