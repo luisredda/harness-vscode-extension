@@ -353,7 +353,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const result = await launchAI({
           prompt,
           toolId: detection.activeTool as any,
-          timeout: 60000, // 60 seconds for MCP calls
+          config: currentConfig || undefined,
           cwd: workspaceFolder,
         });
 
@@ -485,7 +485,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const result = await launchAI({
           prompt,
           toolId: 'cursor',
-          timeout: 60000,
+          config: currentConfig || undefined,
         });
 
         if (result.type === 'launched') {
