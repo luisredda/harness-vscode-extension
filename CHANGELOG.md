@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.5] - 2026-05-13
+
+### Fixed
+- **Export command**: Fixed export not working when viewing history detail executions
+  - Reordered message handler to process HISTORY_DETAIL before EXECUTION_UPDATE
+  - Prevents EXECUTION_UPDATE from overwriting history detail source
+  - Execution data now updates while keeping history source intact
+- **Looping strategy visualization**: Fixed looped stages not displaying all iterations
+  - Changed getStages() to track by execution ID instead of nodeUuid
+  - Now shows all iterations (e.g., GitOps Dev_movie, GitOps Dev_booking) separately
+  - Each iteration displays its own steps and status
+- **Switch project button**: Fixed button appearing to do nothing when clicked
+  - Now clears workspace-specific org/project settings before saving global selection
+  - Workspace settings take precedence over global, so they must be cleared first
+
 ## [0.1.4] - 2026-05-12
 
 ### Added

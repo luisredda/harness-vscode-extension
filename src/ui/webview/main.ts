@@ -1019,8 +1019,12 @@ function dotClass(s: string, endTs?: number): string {
 }
 
 function getStages(layoutNodeMap: Record<string, LayoutNode>): LayoutNode[] {
-  const allStages = Object.values(layoutNodeMap).filter(n => n.nodeGroup === 'STAGE');
-  if (!allStages.length) return [];
+  // Get all STAGE nodes - include looped iterations but filter STRATEGY containers
+  // STRATEGY nodeGroup indicates loop/matrix wrappers, not actual executable stages
+  const allEntries = Object.entries(layoutNodeMap).filter(([, n]) =>
+    n.nodeGroup === 'STAGE'
+  );
+  if (!allEntries.length) return [];
 
   // Helper to check if stage should be excluded from output
   const shouldExclude = (s: LayoutNode): boolean => {
@@ -1043,37 +1047,46 @@ function getStages(layoutNodeMap: Record<string, LayoutNode>): LayoutNode[] {
     return false;
   };
 
-  // Use ALL stages for traversal (including wrappers), but filter them from output
-  const byUuid = new Map(allStages.map(s => [s.nodeUuid, s]));
-  const referenced = new Set(allStages.flatMap(s => s.edgeLayoutList?.nextIds ?? []));
-  let roots = allStages.filter(s => !referenced.has(s.nodeUuid));
-  if (!roots.length) roots = [allStages[0]];
+  // Map by execution ID (unique even for looped stages) AND by nodeUuid (for nextIds lookup)
+  const byExecutionId = new Map(allEntries);
+  const byUuid = new Map<string, Array<[string, LayoutNode]>>();
+  for (const [execId, stage] of allEntries) {
+    if (!byUuid.has(stage.nodeUuid)) byUuid.set(stage.nodeUuid, []);
+    byUuid.get(stage.nodeUuid)!.push([execId, stage]);
+  }
+
+  // Find roots - stages not referenced by any other stage's nextIds
+  const referenced = new Set(allEntries.flatMap(([, s]) => s.edgeLayoutList?.nextIds ?? []));
+  let roots = allEntries.filter(([execId]) => !referenced.has(execId));
+  if (!roots.length) roots = [allEntries[0]];
 
   const ordered: LayoutNode[] = [];
   const visited = new Set<string>();
-  const queue = [...roots];
+  const queue = roots.map(([execId]) => execId);
 
   while (queue.length) {
-    const s = queue.shift()!;
-    if (visited.has(s.nodeUuid)) continue;
-    visited.add(s.nodeUuid);
+    const execId = queue.shift()!;
+    if (visited.has(execId)) continue;
+    visited.add(execId);
+
+    const stage = byExecutionId.get(execId);
+    if (!stage) continue;
 
     // Add to output only if not excluded
-    if (!shouldExclude(s)) {
-      ordered.push(s);
+    if (!shouldExclude(stage)) {
+      ordered.push(stage);
     }
 
-    // Follow nextIds to continue traversal (even for excluded nodes like parallel wrappers)
-    for (const nextId of s.edgeLayoutList?.nextIds ?? []) {
-      const next = byUuid.get(nextId);
-      if (next && !visited.has(next.nodeUuid)) queue.push(next);
+    // Follow nextIds to continue traversal
+    for (const nextId of stage.edgeLayoutList?.nextIds ?? []) {
+      if (!visited.has(nextId)) queue.push(nextId);
     }
   }
 
-  // Append any stages not reachable via chain (shouldn't happen but safe fallback)
-  for (const s of allStages) {
-    if (!visited.has(s.nodeUuid) && !shouldExclude(s)) {
-      ordered.push(s);
+  // Append any stages not reachable via chain (handles looped stages with shared nodeUuid)
+  for (const [execId, stage] of allEntries) {
+    if (!visited.has(execId) && !shouldExclude(stage)) {
+      ordered.push(stage);
     }
   }
 
