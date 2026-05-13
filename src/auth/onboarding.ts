@@ -140,7 +140,9 @@ export async function runWorkspaceSetup(secretStore: SecretStore, _configManager
   if (!projSelected) return false;
 
   // Save to global settings (persists across all workspaces)
-  // Users can override per-workspace using "Harness: Switch Project (This Workspace)"
+  // Clear any workspace-specific overrides first so global settings take effect
+  await cfg.update('orgIdentifier',     undefined, vscode.ConfigurationTarget.Workspace);
+  await cfg.update('projectIdentifier', undefined, vscode.ConfigurationTarget.Workspace);
   await cfg.update('orgIdentifier',     orgSelected.identifier,  vscode.ConfigurationTarget.Global);
   await cfg.update('projectIdentifier', projSelected.identifier, vscode.ConfigurationTarget.Global);
 
