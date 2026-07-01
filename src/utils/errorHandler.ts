@@ -25,5 +25,5 @@ export function handleApiError(error: unknown, context: string): void {
     console.warn(`[Harness] Network error in ${context} — will retry`);
     return;
   }
-  console.error(`[Harness] Unexpected error in ${context}:`, error);
+                console.error('[Harness] Unexpected error in %s:', context, error);
 }
