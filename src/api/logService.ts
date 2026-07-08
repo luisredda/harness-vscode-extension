@@ -11,31 +11,42 @@ let cachedToken: string | null = null;
 let tokenExpiresAt = 0;
 
 async function getLogToken(config: HarnessConfig): Promise<string | null> {
-  if (cachedToken && Date.now() < tokenExpiresAt) return cachedToken;
+  if (cachedToken && Date.now() < tokenExpiresAt) {
+    logger.debug('LogService', 'getLogToken: using cached token');
+    return cachedToken;
+  }
+  const tokenUrl = `${config.baseUrl}/log-service/token?accountID=${encodeURIComponent(config.accountIdentifier)}`;
+  logger.debug('LogService', 'getLogToken: fetching', { url: tokenUrl });
   try {
     // Add timeout to prevent hanging forever
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout for token fetch
 
     try {
-      const res = await fetch(
-        `${config.baseUrl}/log-service/token?accountID=${encodeURIComponent(config.accountIdentifier)}`,
-        {
-          headers: { 'x-api-key': config.apiKey },
-          signal: controller.signal,
-        }
-      );
+      const res = await fetch(tokenUrl, {
+        headers: { 'x-api-key': config.apiKey },
+        signal: controller.signal,
+      });
       clearTimeout(timeoutId);
-      if (!res.ok) return null;
+      logger.debug('LogService', 'getLogToken: response', { status: res.status, ok: res.ok });
+      if (!res.ok) {
+        logger.debug('LogService', 'getLogToken: non-OK response, token unavailable');
+        return null;
+      }
       const text = await res.text();
       cachedToken = text.replace(/^"|"$/g, '').trim();
       tokenExpiresAt = Date.now() + 20 * 60 * 1000;
+      logger.debug('LogService', 'getLogToken: token acquired, cached for 20min');
       return cachedToken;
     } catch (err) {
       clearTimeout(timeoutId);
+      logger.debug('LogService', 'getLogToken: fetch error', { err: String(err) });
       return null;
     }
-  } catch { return null; }
+  } catch (err) {
+    logger.debug('LogService', 'getLogToken: unexpected error', { err: String(err) });
+    return null;
+  }
 }
 
 const CONTAINER_STEP_TYPES = new Set([
@@ -370,12 +381,16 @@ export async function fetchStepLogs(
   config: HarnessConfig,
   logBaseKey: string,
 ): Promise<string[]> {
+  logger.debug('LogService', 'fetchStepLogs start', { logBaseKey });
+
   // ── Approach 1: blob/download (PAT, requires FF) ──────────────────────────
   let zipFailed = false;
   try {
     const url = `${config.baseUrl}/gateway/log-service/blob/download` +
       `?accountID=${encodeURIComponent(config.accountIdentifier)}` +
       `&prefix=${encodeURIComponent(logBaseKey)}`;
+
+    logger.debug('LogService', 'Approach 1: blob/download', { url });
 
     // Add timeout to prevent hanging forever
     const controller = new AbortController();
@@ -388,6 +403,8 @@ export async function fetchStepLogs(
         signal: controller.signal,
       });
 
+      logger.debug('LogService', 'Approach 1: blob/download response', { status: res.status, ok: res.ok });
+
       if (res.ok) {
         const text = await res.text();
         let downloadUrl: string | null = null;
@@ -398,18 +415,28 @@ export async function fetchStepLogs(
           downloadUrl = text.trim().replace(/^"|"$/g, '');
         }
 
+        logger.debug('LogService', 'Approach 1: signed download URL', { downloadUrl });
+
         if (downloadUrl?.startsWith('http')) {
           const dlRes = await fetch(downloadUrl, { signal: controller.signal });
+          logger.debug('LogService', 'Approach 1: ZIP download response', { status: dlRes.status, ok: dlRes.ok });
           if (dlRes.ok) {
             const buf = Buffer.from(await dlRes.arrayBuffer());
             const lines = await decompressAndParse(buf);
             clearTimeout(timeoutId);
+            logger.debug('LogService', 'Approach 1: parsed lines', { count: lines.length });
             if (lines.length > 0) return lines;
             // If we got 0 lines, mark as failed to try alternative approach
             zipFailed = true;
             logger.debug('LogService', 'ZIP extraction returned 0 lines, will try raw blob');
+          } else {
+            logger.debug('LogService', 'Approach 1: ZIP download failed', { status: dlRes.status });
           }
+        } else {
+          logger.debug('LogService', 'Approach 1: no valid download URL in response', { responsePreview: text.substring(0, 200) });
         }
+      } else {
+        logger.debug('LogService', 'Approach 1: blob/download endpoint non-OK', { status: res.status });
       }
       clearTimeout(timeoutId);
     } catch (err) {
@@ -428,32 +455,44 @@ export async function fetchStepLogs(
   // if (zipFailed) { ... }
 
   // ── Approach 2: stream endpoint (log-service token, no FF needed) ─────────
+  logger.debug('LogService', 'Approach 2: stream endpoint', { logBaseKey });
   try {
     const token = await getLogToken(config);
     if (token) {
       const qs  = new URLSearchParams({ accountID: config.accountIdentifier, key: logBaseKey }).toString();
+      const streamUrl = `${config.baseUrl}/log-service/stream?${qs}`;
+
+      logger.debug('LogService', 'Approach 2: stream URL', { url: streamUrl });
 
       // Add timeout to prevent hanging forever
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
       try {
-        const res = await fetch(`${config.baseUrl}/log-service/stream?${qs}`, {
+        const res = await fetch(streamUrl, {
           headers: { 'X-Harness-Token': token },
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
+        logger.debug('LogService', 'Approach 2: stream response', { status: res.status, ok: res.ok });
         if (res.ok) {
           const lines = parseLogLines(await res.text());
+          logger.debug('LogService', 'Approach 2: parsed lines', { count: lines.length });
           if (lines.length > 0) return lines.slice(-200);
+        } else {
+          logger.debug('LogService', 'Approach 2: stream endpoint non-OK', { status: res.status });
         }
       } catch (err) {
         clearTimeout(timeoutId);
+        logger.debug('LogService', 'Approach 2: stream fetch error', { err: String(err) });
         // Fall through
       }
+    } else {
+      logger.debug('LogService', 'Approach 2: no log-service token available');
     }
   } catch { /* silent */ }
 
+  logger.debug('LogService', 'fetchStepLogs: both approaches exhausted, returning []', { logBaseKey });
   return [];
 }
 

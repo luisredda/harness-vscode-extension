@@ -71,25 +71,29 @@ function normaliseRemoteUrl(raw: string): string {
 }
 
 /** Build a direct commit URL for the known SCM hosts. */
-export function buildCommitUrl(repoUrl: string, sha: string): string {
+export function buildCommitUrl(repoUrl: string, sha: string, baseUrl?: string): string {
+  // Normalise baseUrl: strip trailing slash, fall back to SaaS default.
+  // Covers app.harness.io, app2.harness.io, app3.harness.io, self-hosted instances.
+  const appBase = (baseUrl ?? 'https://app.harness.io').replace(/\/$/, '');
+
   // Harness Code repos can be org-level or project-level:
   // Project: https://git.harness.io/{account}/{org}/{project}/{repo}
-  //   → https://app.harness.io/ng/account/{account}/module/code/orgs/{org}/projects/{project}/repos/{repo}/commit/{sha}
+  //   → {appBase}/ng/account/{account}/module/code/orgs/{org}/projects/{project}/repos/{repo}/commit/{sha}
   // Org: https://git.harness.io/{account}/{org}/{repo}
-  //   → https://app.harness.io/ng/account/{account}/module/code/orgs/{org}/repos/{repo}/commit/{sha}
+  //   → {appBase}/ng/account/{account}/module/code/orgs/{org}/repos/{repo}/commit/{sha}
 
   // Try project-level first (4 segments)
   const harnessProject = repoUrl.match(/git\.harness\.io\/([^/]+)\/([^/]+)\/([^/]+)\/([^/]+)/);
   if (harnessProject) {
     const [, accountId, org, project, repo] = harnessProject;
-    return `https://app.harness.io/ng/account/${accountId}/module/code/orgs/${org}/projects/${project}/repos/${repo}/commit/${sha}`;
+    return `${appBase}/ng/account/${accountId}/module/code/orgs/${org}/projects/${project}/repos/${repo}/commit/${sha}`;
   }
 
   // Try org-level (3 segments)
   const harnessOrg = repoUrl.match(/git\.harness\.io\/([^/]+)\/([^/]+)\/([^/]+)/);
   if (harnessOrg) {
     const [, accountId, org, repo] = harnessOrg;
-    return `https://app.harness.io/ng/account/${accountId}/module/code/orgs/${org}/repos/${repo}/commit/${sha}`;
+    return `${appBase}/ng/account/${accountId}/module/code/orgs/${org}/repos/${repo}/commit/${sha}`;
   }
 
   if (repoUrl.includes('gitlab'))    return `${repoUrl}/-/commit/${sha}`;

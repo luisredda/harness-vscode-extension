@@ -18,6 +18,7 @@ import { dispatchModules } from './pipeline/executionDispatcher';
 import { initFmeClient, destroyFmeClient, getLogViewerVariation } from './fme/fmeClient';
 import { LogContentProvider, LOG_SCHEME } from './logs/logContentProvider';
 import { openLogAsEditorTab } from './logs/logEditorTab';
+import { openAgentChatTab, isAgentLog } from './logs/agentChatTab';
 import { detectAITools } from './ai/detector';
 import { configureMCP, configureCopilotMCP } from './ai/mcpConfigurer';
 import { buildPrompt } from './ai/promptBuilder';
@@ -312,8 +313,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const msg = m as any;
       if (msg.logBaseKey && msg.nodeId) {
-        // Run log fetch in background - don't block message handler or poller
-        fetchStepLogsOnDemand(currentConfig, bridge, logProvider, msg.logBaseKey, msg.nodeId, msg.stepName, msg.stageName, msg.pipelineName, msg.planExecutionId, msg.status, msg.durationMs);
+        if (msg.isAgent) {
+          // Agent step: open chat viewer panel instead of log editor tab
+          openAgentChatTabForStep(currentConfig, msg.logBaseKey, msg.stepName, msg.stageName, msg.pipelineName, msg.planExecutionId, msg.status, msg.durationMs, bridge, msg.nodeId);
+        } else {
+          // Run log fetch in background - don't block message handler or poller
+          fetchStepLogsOnDemand(currentConfig, bridge, logProvider, msg.logBaseKey, msg.nodeId, msg.stepName, msg.stageName, msg.pipelineName, msg.planExecutionId, msg.status, msg.durationMs);
+        }
       }
     } else if (m.type === 'setDefaultView') {
       const msg = m as any;
@@ -1263,7 +1269,7 @@ async function fetchExecutionDetail(
       }
 
       if (repoUrl) {
-        commitWebUrl = buildCommitUrl(repoUrl, commitSha);
+        commitWebUrl = buildCommitUrl(repoUrl, commitSha, config.baseUrl);
       }
     }
 
@@ -1302,6 +1308,50 @@ async function fetchExecutionDetail(
       type: 'EXECUTION_ERROR',
       message: msg,
     });
+  }
+}
+
+async function openAgentChatTabForStep(
+  config: { baseUrl: string; accountIdentifier: string; orgIdentifier: string; projectIdentifier: string; apiKey: string },
+  logBaseKey: string,
+  stepName?: string,
+  stageName?: string,
+  pipelineName?: string,
+  planExecutionId?: string,
+  status?: string,
+  durationMs?: number,
+  bridge?: typeof import('./ui/webviewBridge').WebviewBridge.prototype,
+  nodeId?: string
+): Promise<void> {
+  if (nodeId && bridge) {
+    bridge.send({ type: 'STEP_LOGS_LOADING', nodeId });
+  }
+  try {
+    await openAgentChatTab({
+      stepName: stepName || 'Agent',
+      stageName: stageName || '',
+      pipelineName: pipelineName || 'Pipeline',
+      planExecutionId: planExecutionId || '',
+      logBaseKey,
+      status: (status?.toUpperCase() as any) || 'SUCCESS',
+      durationMs,
+      config,
+    });
+    if (nodeId && bridge) {
+      bridge.send({ type: 'STEP_LOGS_OPENED_IN_TAB', nodeId });
+    }
+  } catch (err) {
+    logger.error('Extension', 'Failed to open agent chat tab:', err);
+    // Fall back to normal log fetch
+    if (nodeId && bridge) {
+      const { fetchStepLogs } = await import('./api/logService');
+      const lines = await fetchStepLogs(config as any, logBaseKey).catch(() => [] as string[]);
+      if (lines.length > 0) {
+        bridge.send({ type: 'LOG_CHUNK', nodeId, lines, autoExpand: false });
+      } else {
+        bridge.send({ type: 'STEP_LOGS_EMPTY', nodeId });
+      }
+    }
   }
 }
 
@@ -1369,6 +1419,24 @@ async function fetchStepLogsOnDemand(
     }
 
     if (lines.length > 0) {
+      // Agent log detection fallback: if logs look like a Harness AI agent run,
+      // open the chat viewer even if the webview didn't set isAgent on the step
+      if (isAgentLog(lines) && stepName && stageName) {
+        logger.debug('Extension', 'Detected agent log content — opening chat tab', { stepName, nodeId });
+        await openAgentChatTab({
+          stepName,
+          stageName,
+          pipelineName: pipelineName || 'Pipeline',
+          planExecutionId: planExecutionId || '',
+          logBaseKey,
+          status: (status?.toUpperCase() as any) || 'SUCCESS',
+          durationMs,
+          config,
+        });
+        bridge.send({ type: 'STEP_LOGS_OPENED_IN_TAB', nodeId });
+        return;
+      }
+
       // Check FME variation to decide how to display logs
       const variation = await getLogViewerVariation();
       logger.debug('Extension', `Log viewer variation: ${variation}`, { nodeId });

@@ -222,6 +222,8 @@ interface StepInfo {
   nodeId?: string;       // graph node key — used to correlate LOG_CHUNK messages
   logBaseKey?: string;   // passed to log-service to fetch logs
   stepType?: string;     // step type (e.g., HarnessApproval, JiraApproval, ServiceNowApproval)
+  identifier?: string;   // YAML step identifier — used to detect agent steps
+  parentGroupName?: string; // name of the enclosing STEP_GROUP, if any
 }
 
 interface ExecGraph {
@@ -1370,7 +1372,8 @@ function collectSteps(
   nodeMap: Record<string, GraphNode>,
   adjList: Record<string, { children?: string[]; nextIds?: string[] }>,
   depth: number,
-  visited: Set<string>
+  visited: Set<string>,
+  parentGroupName?: string
 ): StepInfo[] {
   if (depth > 15 || visited.has(nodeId)) return [];
   visited.add(nodeId);
@@ -1385,6 +1388,10 @@ function collectSteps(
   const children = [...(adj.children ?? [])];
   const nextIds  = [...(adj.nextIds ?? [])];
 
+  // Capture step group name to pass into children
+  const isStepGroup = node.stepType === 'STEP_GROUP' || node.stepType === 'CI_STEP_GROUP';
+  const groupNameForChildren = isStepGroup ? (node.name || parentGroupName) : parentGroupName;
+
   if (!CONTAINER_TYPES.has(node.stepType ?? '') && node.name) {
     // Leaf step — emit it, then follow sequential chain (but not into other stages)
     const step: StepInfo = {
@@ -1395,14 +1402,16 @@ function collectSteps(
       nodeId,
       logBaseKey: node.logBaseKey,
       stepType: node.stepType,
+      identifier: node.identifier,
+      parentGroupName,
     };
-    const rest = nextIds.flatMap(id => collectSteps(id, nodeMap, adjList, depth + 1, visited));
+    const rest = nextIds.flatMap(id => collectSteps(id, nodeMap, adjList, depth + 1, visited, parentGroupName));
     return [step, ...rest];
   }
 
   // Container — drill into children and follow next chain
-  const fromChildren = children.flatMap(id => collectSteps(id, nodeMap, adjList, depth + 1, visited));
-  const fromNext     = nextIds.flatMap(id => collectSteps(id, nodeMap, adjList, depth + 1, visited));
+  const fromChildren = children.flatMap(id => collectSteps(id, nodeMap, adjList, depth + 1, visited, groupNameForChildren));
+  const fromNext     = nextIds.flatMap(id => collectSteps(id, nodeMap, adjList, depth + 1, visited, parentGroupName));
   return [...fromChildren, ...fromNext];
 }
 
@@ -3205,9 +3214,10 @@ function execCard(ex: ExecState): string {
         cleanRepoName = cleanRepoName.substring(8);
       }
 
-      // Build Harness Code PR URL
+      // Build Harness Code PR URL — derive base from harnessUrl so app3/self-hosted instances work
+      const harnessBase = ex.harnessUrl?.match(/^(https?:\/\/[^/]+)/)?.[1] ?? 'https://app.harness.io';
       if (account && state.org && cleanRepoName) {
-        prUrl = `https://app.harness.io/ng/account/${account}/module/code/orgs/${state.org}/repos/${cleanRepoName}/pulls/${prNumber}/conversation`;
+        prUrl = `${harnessBase}/ng/account/${account}/module/code/orgs/${state.org}/repos/${cleanRepoName}/pulls/${prNumber}/conversation`;
       }
     }
 
@@ -3493,6 +3503,19 @@ function execCard(ex: ExecState): string {
           const logKeyAttr   = step.logBaseKey ? ` data-logbasekey="${esc(step.logBaseKey)}"` : '';
           const clickable    = canExpand ? ' step-clickable' : '';
 
+          // Detect Harness AI agent steps: identifier "agent" inside a STEP_GROUP,
+          // or stepType matching the harness-ai-agent image name
+          const isAgentStep = step.identifier === 'agent' && !!step.parentGroupName
+            || /harness-ai-agent|HarnessAIAgent/i.test(step.stepType ?? '');
+          // Show the step group name ("PR Review") instead of the generic "Agent" step name
+          const displayName = isAgentStep && step.parentGroupName
+            ? `⬡ ${step.parentGroupName}`
+            : isAgentStep
+            ? `⬡ ${step.name}`
+            : step.name;
+          const stepTypeAttr = step.stepType ? ` data-steptype="${esc(step.stepType)}"` : '';
+          const agentAttr = isAgentStep ? ' data-isagent="1"' : '';
+
           // Add metadata attributes for expanded log viewer
           const stepNameAttr = ` data-stepname="${esc(step.name)}"`;
           const stageNameAttr = ` data-stagename="${esc(stage.name)}"`;
@@ -3504,27 +3527,30 @@ function execCard(ex: ExecState): string {
 
           // Enhanced theme: status classes and external link icon
           if (state.webviewTheme === 'enhanced') {
-            const extIcon = '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M3 3 L7 3 L7 7 M7 3 L3 7" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>';
+            const extIcon = isAgentStep
+              ? '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M3 3 L7 3 L7 7 M7 3 L3 7" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>'
+              : '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M3 3 L7 3 L7 7 M7 3 L3 7" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>';
             const stepStatusClass = step.status === 'FAILED' ? 'is-failed'
                                   : step.status === 'IGNOREFAILED' ? 'is-failed'
                                   : (!step.startTs || step.status === 'NOT_STARTED') ? 'is-pending'
                                   : '';
+            const tipLabel = isAgentStep ? 'View agent chat' : 'View step logs';
 
-            parts.push(`<button class="step-row${isExpanded ? ' on' : ''}${stepStatusClass ? ' ' + stepStatusClass : ''}${clickable}" data-action="toggleStep"${nodeAttr}${logKeyAttr}${stepNameAttr}${stageNameAttr}${pipelineNameAttr}${planIdAttr}${statusAttr}${durationAttr}>
+            parts.push(`<button class="step-row${isExpanded ? ' on' : ''}${stepStatusClass ? ' ' + stepStatusClass : ''}${clickable}" data-action="toggleStep"${nodeAttr}${logKeyAttr}${stepNameAttr}${stageNameAttr}${pipelineNameAttr}${planIdAttr}${statusAttr}${durationAttr}${stepTypeAttr}${agentAttr}>
               <span class="step-stat">${stageIcon(step.status)}</span>
-              <span class="step-name">${esc(step.name)}</span>
+              <span class="step-name">${esc(displayName)}</span>
               <span class="step-dur" data-start-ts="${step.startTs || 0}" data-end-ts="${step.endTs || 0}">${dur(step.startTs, step.endTs)}</span>
-              ${canExpand ? `<span class="tip-wrap"><span class="step-ext">${extIcon}</span><span class="tip">View step logs</span></span>` : ''}
+              ${canExpand ? `<span class="tip-wrap"><span class="step-ext">${extIcon}</span><span class="tip">${tipLabel}</span></span>` : ''}
             </button>`);
           } else {
             // Simple theme
             const showExtIcon = state.logViewerVariation === 'expanded' && canExpand;
-            const extIcon = showExtIcon ? '<span class="tip-wrap"><span class="step-ext-ic">↗</span><span class="tip">View step logs</span></span>' : '';
+            const extIcon = showExtIcon ? `<span class="tip-wrap"><span class="step-ext-ic">↗</span><span class="tip">${isAgentStep ? 'View agent chat' : 'View step logs'}</span></span>` : '';
 
-            parts.push(`<div class="step-row${stepActive ? ' step-running' : ''}${stepFailed ? ' failed' : ''}${stepWarning ? ' warning' : ''}${clickable}" data-action="toggleStep"${nodeAttr}${logKeyAttr}${stepNameAttr}${stageNameAttr}${pipelineNameAttr}${planIdAttr}${statusAttr}${durationAttr}>
+            parts.push(`<div class="step-row${stepActive ? ' step-running' : ''}${stepFailed ? ' failed' : ''}${stepWarning ? ' warning' : ''}${clickable}" data-action="toggleStep"${nodeAttr}${logKeyAttr}${stepNameAttr}${stageNameAttr}${pipelineNameAttr}${planIdAttr}${statusAttr}${durationAttr}${stepTypeAttr}${agentAttr}>
               <span class="step-toggle${isLoading ? ' step-loading' : ''}">${toggleIcon}</span>
               <span class="step-icon">${stageIcon(step.status)}</span>
-              <span class="step-name">${esc(step.name)}${extIcon}</span>
+              <span class="step-name">${esc(displayName)}${extIcon}</span>
               <span class="step-dur" data-start-ts="${step.startTs || 0}" data-end-ts="${step.endTs || 0}">${dur(step.startTs, step.endTs)}</span>
             </div>`);
           }
@@ -4432,7 +4458,8 @@ function bind(): void {
           const planExecutionId = el.dataset['planexecutionid'];
           const status = el.dataset['status'];
           const durationMs = parseInt(el.dataset['durationms'] ?? '0', 10);
-          console.log('[Webview] Fetching logs on-demand', { nodeId, logBaseKey, stepName, stageName, variation: state.logViewerVariation });
+          const isAgent = el.dataset['isagent'] === '1';
+          console.log('[Webview] Fetching logs on-demand', { nodeId, logBaseKey, stepName, stageName, isAgent, variation: state.logViewerVariation });
           vscode.postMessage({
             type: 'fetchStepLogs',
             nodeId,
@@ -4442,7 +4469,8 @@ function bind(): void {
             pipelineName,
             planExecutionId,
             status,
-            durationMs
+            durationMs,
+            isAgent,
           });
         }
       }
