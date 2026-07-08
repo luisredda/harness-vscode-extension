@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import { logger } from '../utils/logger';
 import { ConfigManager } from '../config/configManager';
 
@@ -104,7 +106,15 @@ export async function openAidaChatPanel(
   activePanel.panel = panel;
   panel.onDidDispose(() => { activePanel.panel = undefined; });
 
-  panel.webview.html = buildHtml(panel, cfg, chatContext);
+  // Load the bundled marked parser so the webview can render full markdown.
+  let markedScript = '';
+  try {
+    markedScript = fs.readFileSync(path.join(vsContext.extensionPath, 'dist', 'marked.js'), 'utf8');
+  } catch (err) {
+    logger.warn('AidaChatPanel', 'Could not load marked.js — falling back to basic markdown', err);
+  }
+
+  panel.webview.html = buildHtml(panel, cfg, chatContext, markedScript);
 
   panel.webview.onDidReceiveMessage(async (msg) => {
     if (msg.type === 'SEND_MESSAGE') {
@@ -345,7 +355,7 @@ async function deleteSession(cfg: AidaChatConfig, sessionId: string): Promise<vo
 
 // ── HTML ───────────────────────────────────────────────────────────────────────
 
-function buildHtml(_panel: vscode.WebviewPanel, cfg: AidaChatConfig, chatContext?: IntelligenceChatContext): string {
+function buildHtml(_panel: vscode.WebviewPanel, cfg: AidaChatConfig, chatContext?: IntelligenceChatContext, markedScript?: string): string {
   const nonce = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
   const csp = [
     `default-src 'none'`,
@@ -388,6 +398,7 @@ ${HISTORY_HTML}
 ${INPUT_HTML}
 <div class="ac-disclaimer" id="ac-disclaimer">Harness Intelligence can make mistakes. Check answers.</div>
 
+${markedScript ? `<script nonce="${nonce}">${markedScript}</script>` : ''}
 <script nonce="${nonce}">
 // Surface any runtime error visibly so failures never silently disable the UI
 window.onerror = function (message, source, lineno, colno) {
@@ -1199,6 +1210,19 @@ function setSendState(streaming) {
 // ── Markdown renderer (simple) ────────────────────────────────────────────────
 function renderMarkdown(md) {
   if (!md) return '';
+  // Prefer the bundled marked parser (full GFM: tables, links, ordered/nested lists, etc.)
+  if (typeof window.__harnessMarkdown === 'function') {
+    try {
+      const out = window.__harnessMarkdown(md);
+      if (out) return out;
+    } catch (e) { /* fall through to basic renderer */ }
+  }
+  return basicMarkdown(md);
+}
+
+// Fallback used only if the marked bundle failed to load.
+function basicMarkdown(md) {
+  if (!md) return '';
   let html = esc(md);
 
   // Code blocks
@@ -1444,41 +1468,59 @@ body {
   border-radius: 4px;
 }
 
-/* ── Greeting (empty state) ──────────────────────────────────────────────── */
+/* ── Greeting (empty state) ──────────────────────────────────────────────────
+   Matches the Harness UI: content is centered horizontally and bottom-aligned
+   (sits just above the input), filling the full message-area height. */
 .ac-greeting-wrap {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 28px;
   padding: 8px 0 4px;
 }
 .ac-greeting {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 16px;
-  font-weight: 600;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 500;
   color: var(--ac-fg);
 }
-.ac-greeting-icon { color: var(--ac-logo); }
+.ac-greeting-icon {
+  color: var(--ac-logo);
+  display: inline-flex;
+}
 
-/* ── Quick action chips ──────────────────────────────────────────────────── */
-.ac-chips { display: flex; flex-direction: column; gap: 8px; }
-.ac-quick-chip {
+/* ── Quick action chips ───────────────────────────────────────────────────────
+   Auto-width (hug content), left-aligned, with a leading icon — like Harness. */
+.ac-chips {
   display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-self: stretch;
+  align-items: flex-start;
+}
+.ac-quick-chip {
+  display: inline-flex;
   align-items: center;
-  height: 36px;
-  padding: 0 12px 0 14px;
-  background: var(--vscode-button-secondaryBackground, lch(97% 0 0));
-  color: var(--vscode-button-secondaryForeground, lch(47% 6 275));
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 8px 14px;
+  background: var(--vscode-button-secondaryBackground, lch(99% 0 272));
+  color: var(--vscode-button-secondaryForeground, lch(25% 11.5 280));
   border: 1px solid var(--ac-border);
-  border-radius: var(--ac-radius);
+  border-radius: 8px;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   text-align: left;
   transition: background 0.1s, border-color 0.1s;
-  width: 100%;
 }
+.ac-quick-chip svg { flex-shrink: 0; color: var(--ac-fg-muted); }
 .ac-quick-chip:hover {
   background: var(--ac-hover);
   border-color: var(--ac-focus);
@@ -1601,6 +1643,18 @@ body {
 .ac-msg-body li { margin-bottom: 4px; }
 .ac-msg-body strong { font-weight: 600; }
 .ac-msg-body em { font-style: italic; }
+.ac-msg-body a {
+  color: var(--vscode-textLink-foreground, var(--ac-code-fg));
+  text-decoration: none;
+}
+.ac-msg-body a:hover { text-decoration: underline; }
+.ac-msg-body blockquote {
+  border-left: 3px solid var(--ac-border);
+  margin: 8px 0;
+  padding-left: 12px;
+  color: var(--ac-fg-muted);
+}
+.ac-msg-body hr { border: none; border-top: 1px solid var(--ac-border); margin: 12px 0; }
 .ac-msg-body code {
   background: var(--ac-code-bg);
   color: var(--ac-code-fg);
@@ -2074,15 +2128,18 @@ const HEADER_HTML = `<div class="ac-header">
   </div>
 </div>`;
 
+const CHIP_ICON_PIPELINE = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M12.75 7.254a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0M4.25 8.756a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0M4.25 11.856a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0M12.75 4.248a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0"/><path stroke="currentColor" stroke-width="1" d="M3.75 8.75V4.267m0 0a1.767 1.767 0 0 1 1.767-1.767h.358m6.375 4.75v4.483m0 0a1.767 1.767 0 0 1-1.767 1.767h-.358M8 4.267v7.466"/></svg>';
+const CHIP_ICON_QUESTION = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M6.2 6.2c0-2.1 3.3-2.1 3.3 0 0 1.5-1.5 1.2-1.5 3m0 2.406.006-.007M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12"/></svg>';
+
 const GREETING_HTML = `<div class="ac-greeting-wrap">
   <div class="ac-greeting">
     <span class="ac-greeting-icon">${DIAMOND_SVG_20}</span>
-    How can I help you today?
+    <span>How can I help you today?</span>
   </div>
   <div class="ac-chips">
-    <button class="ac-quick-chip" data-prompt="List pipelines">List pipelines</button>
-    <button class="ac-quick-chip" data-prompt="Analyze Pipeline Errors">Analyze Pipeline Errors</button>
-    <button class="ac-quick-chip" data-prompt="Ask a support question">Ask a support question</button>
+    <button class="ac-quick-chip" data-prompt="List pipelines">${CHIP_ICON_PIPELINE}<span>List pipelines</span></button>
+    <button class="ac-quick-chip" data-prompt="Ask a support question">${CHIP_ICON_QUESTION}<span>Ask a support question</span></button>
+    <button class="ac-quick-chip" data-prompt="Analyze Pipeline Errors">${CHIP_ICON_PIPELINE}<span>Analyze Pipeline Errors</span></button>
   </div>
 </div>`;
 

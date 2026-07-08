@@ -46,15 +46,29 @@ async function build() {
     external: [],
   });
 
+  // Marked markdown parser — bundled as a standalone IIFE for the chat webview.
+  // The chat panel reads dist/marked.js and inlines it into the webview HTML.
+  const markedCtx = await esbuild.context({
+    ...baseConfig,
+    entryPoints: ['src/ai/markedBundle.ts'],
+    outfile: 'dist/marked.js',
+    format: 'iife',
+    platform: 'browser',
+    external: [],
+  });
+
   if (isWatch) {
     await extensionCtx.watch();
     await webviewCtx.watch();
+    await markedCtx.watch();
     console.log('Watching for changes...');
   } else {
     await extensionCtx.rebuild();
     await webviewCtx.rebuild();
+    await markedCtx.rebuild();
     await extensionCtx.dispose();
     await webviewCtx.dispose();
+    await markedCtx.dispose();
     console.log('Build complete.');
   }
 }
