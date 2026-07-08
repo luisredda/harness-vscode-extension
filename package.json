@@ -106,8 +106,24 @@
       {
         "command": "harness.debugFmeFlags",
         "title": "Harness: Debug FME Flags"
+      },
+      {
+        "command": "harness.openIntelligenceChat",
+        "title": "Harness: Open Intelligence Chat",
+        "icon": {
+          "light": "icons/harness-intelligence-light.svg",
+          "dark": "icons/harness-intelligence-dark.svg"
+        }
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "harness.openIntelligenceChat",
+          "group": "navigation@100"
+        }
+      ]
+    },
     "languages": [
       {
         "id": "harness-log",

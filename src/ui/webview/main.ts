@@ -1857,6 +1857,11 @@ function infoIcon(): string {
   return `<svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.6" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M6 5.4 L6 8.2 M6 3.8 L6 4.0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`;
 }
 
+// Harness diamond icon for the Intelligence Chat button in the AI footer bar
+function harnessIntelligenceIcon(): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="m13.905 5.621-3.487-3.51a4 4 0 0 0-1.443-.879c-1.194-.4-2.383-.094-3.349.865l-3.515 3.49a4 4 0 0 0-.878 1.445c-.402 1.193-.095 2.383.865 3.347l3.49 3.51c.413.393.905.693 1.443.879.326.111.668.169 1.012.171.84.003 1.645-.35 2.336-1.036l3.51-3.49c.392-.414.692-.906.879-1.445.4-1.193.094-2.381-.866-3.347zm-5.621-2.5c.264.085.507.225.714.41l1.031 1.04-2.022 2.01-2.012-2.024L7.038 3.52c.28-.277.674-.57 1.249-.4zm-5.16 4.594c.086-.264.226-.508.413-.714L4.574 5.97l2.011 2.022-2.024 2.012-1.037-1.045c-.278-.278-.57-.672-.401-1.247zm4.594 5.16a1.95 1.95 0 0 1-.714-.41l-1.028-1.027 2.023-2.012 2.01 2.022-1.042 1.039c-.28.277-.673.57-1.249.4zm5.163-4.584a2 2 0 0 1-.41.714l-1.038 1.018L9.422 8l2.022-2.011 1.037 1.043c.279.278.57.673.402 1.247"/></svg>`;
+}
+
 function statusDot(dotState: 'ok' | 'warn' | 'err' | 'pulse'): string {
   return `<span class="ai-dot ai-dot-${dotState}" aria-hidden="true"></span>`;
 }
@@ -2132,7 +2137,8 @@ function aiFooter(): string {
     const scopeChip = (effectiveState === 'ready' && detection?.mcpScope?.activeScope) ? `<span class="aix-scope-tag is-${detection.mcpScope.activeScope}">${detection.mcpScope.activeScope === 'project' ? folderIcon() : homeIcon()}${detection.mcpScope.activeScope}</span>` : '';
     statusHtml = `<div class="aix-status">${statusDot(s.dot as any)}<span class="aix-status-txt">${esc(s.text)}</span>${scopeChip}${linkHtml}</div>`;
   }
-  return `<div class="aix aix-${effectiveState}">${renderAIToolPicker()}${renderAIMCPCard()}${renderAIResponse()}${renderAILaunched()}<div class="aix-bar">${badgeHtml}<input class="aix-inp" placeholder="${esc(placeholders[effectiveState])}" value="${esc(question)}" ${inputDisabled ? 'disabled' : ''} data-action="aiInput"/><button type="button" class="aix-send" ${sendDisabled ? 'disabled' : ''} data-action="sendAI">${sendContent}</button></div>${statusHtml}</div>`;
+  const harnessAiBtn = `<button type="button" class="aix-harness-btn" data-action="openHarnessChat" title="Open Harness Intelligence Chat">${harnessIntelligenceIcon()}</button>`;
+  return `<div class="aix aix-${effectiveState}">${renderAIToolPicker()}${renderAIMCPCard()}${renderAIResponse()}${renderAILaunched()}<div class="aix-bar">${harnessAiBtn}${badgeHtml}<input class="aix-inp" placeholder="${esc(placeholders[effectiveState])}" value="${esc(question)}" ${inputDisabled ? 'disabled' : ''} data-action="aiInput"/><button type="button" class="aix-send" ${sendDisabled ? 'disabled' : ''} data-action="sendAI">${sendContent}</button></div>${statusHtml}</div>`;
 }
 
 // ── Git bar ────────────────────────────────────────────────────────────────
@@ -4635,6 +4641,13 @@ function bind(): void {
 
     const action = button.dataset.action;
     console.log('[Webview] Click delegation caught:', action);
+
+    // Harness Intelligence Chat button
+    if (action === 'openHarnessChat') {
+      e.preventDefault();
+      vscode.postMessage({ type: 'OPEN_INTELLIGENCE_CHAT' });
+      return;
+    }
 
     // AI bar actions
     if (action === 'sendAI') {

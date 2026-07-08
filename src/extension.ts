@@ -19,6 +19,7 @@ import { initFmeClient, destroyFmeClient, getLogViewerVariation } from './fme/fm
 import { LogContentProvider, LOG_SCHEME } from './logs/logContentProvider';
 import { openLogAsEditorTab } from './logs/logEditorTab';
 import { openAgentChatTab, isAgentLog } from './logs/agentChatTab';
+import { openAidaChatPanel } from './ai/aidaChatPanel';
 import { detectAITools } from './ai/detector';
 import { configureMCP, configureCopilotMCP } from './ai/mcpConfigurer';
 import { buildPrompt } from './ai/promptBuilder';
@@ -481,6 +482,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           message: msg,
         });
       }
+    } else if (m.type === 'OPEN_INTELLIGENCE_CHAT') {
+      const cfg = await configManager.getConfig();
+      if (!cfg) {
+        vscode.window.showWarningMessage('Please configure Harness before opening Intelligence Chat.', 'Configure').then(sel => {
+          if (sel === 'Configure') vscode.commands.executeCommand('harness.configureApiKey');
+        });
+        return;
+      }
+      let chatContext: import('./ai/aidaChatPanel').IntelligenceChatContext | undefined;
+      if (currentViewedExecution?.execution) {
+        const ex = currentViewedExecution.execution;
+        const mi = ex.moduleInfo ?? {};
+        const module = mi.sto ? 'sto' : mi.ci ? 'ci' : mi.cd ? 'cd' : 'ai-agents';
+        const currentUrl = `${cfg.baseUrl}/ng/account/${cfg.accountIdentifier}/all/orgs/${cfg.orgIdentifier}/projects/${cfg.projectIdentifier}/pipelines/${ex.pipelineIdentifier}/deployments/${ex.planExecutionId}/pipeline`;
+        chatContext = { currentUrl, module, pipelineName: ex.name ?? ex.pipelineIdentifier, planExecutionId: ex.planExecutionId };
+      } else {
+        chatContext = {
+          currentUrl: `${cfg.baseUrl}/ng/account/${cfg.accountIdentifier}/module/ai-agents/orgs/${cfg.orgIdentifier}/projects/${cfg.projectIdentifier}/worker-agents`,
+          module: 'ai-agents',
+        };
+      }
+      await openAidaChatPanel(context, configManager, chatContext);
     } else if (m.type === 'AI_CONFIGURE_MCP') {
       // Configure Harness MCP server
       const aiMsg = m as { type: 'AI_CONFIGURE_MCP'; scope?: 'project' | 'global' };
@@ -943,6 +966,46 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { refreshFmeClient } = await import('./fme/fmeClient');
       refreshFmeClient();
       vscode.window.showInformationMessage('FME: Flag states logged to Output panel (View → Output → Harness). Set logLevel=debug for details.');
+    }),
+
+    vscode.commands.registerCommand('harness.openIntelligenceChat', async () => {
+      const cfg = await configManager.getConfig();
+      if (!cfg) {
+        vscode.window.showWarningMessage('Harness: Please configure your API key before using Intelligence Chat.');
+        vscode.commands.executeCommand('harness.configureApiKey');
+        return;
+      }
+
+      // Build context from currently viewed execution (if any)
+      let chatContext: import('./ai/aidaChatPanel').IntelligenceChatContext | undefined;
+
+      if (currentViewedExecution?.execution) {
+        const ex = currentViewedExecution.execution;
+        const { baseUrl, accountIdentifier, orgIdentifier, projectIdentifier } = cfg;
+
+        // Determine module from execution moduleInfo keys
+        const mi = ex.moduleInfo ?? {};
+        const module = mi.sto ? 'sto' : mi.ci ? 'ci' : mi.cd ? 'cd' : 'ai-agents';
+
+        // Build the execution URL — this is what AIDA uses to pull context server-side
+        const currentUrl = `${baseUrl}/ng/account/${accountIdentifier}/all/orgs/${orgIdentifier}/projects/${projectIdentifier}/pipelines/${ex.pipelineIdentifier}/deployments/${ex.planExecutionId}/pipeline`;
+
+        chatContext = {
+          currentUrl,
+          module,
+          pipelineName: ex.name ?? ex.pipelineIdentifier,
+          planExecutionId: ex.planExecutionId,
+        };
+      } else if (cfg) {
+        // No execution open — use the worker-agents page as context (general ai-agents)
+        const { baseUrl, accountIdentifier, orgIdentifier, projectIdentifier } = cfg;
+        chatContext = {
+          currentUrl: `${baseUrl}/ng/account/${accountIdentifier}/module/ai-agents/orgs/${orgIdentifier}/projects/${projectIdentifier}/worker-agents`,
+          module: 'ai-agents',
+        };
+      }
+
+      await openAidaChatPanel(context, configManager, chatContext);
     }),
   );
 

@@ -68,6 +68,29 @@
   cursor: default;
   opacity: 0.5;
 }
+/* Harness Intelligence icon button in AI bar */
+.aix-harness-btn {
+  width: 28px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent;
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-panel-border, var(--vscode-input-border));
+  border-radius: 50%;
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.75;
+  transition: background .15s, opacity .15s, border-color .15s;
+}
+.aix-harness-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+  border-color: var(--vscode-focusBorder);
+  opacity: 1;
+}
+.aix-harness-btn:active {
+  background: var(--vscode-button-secondaryBackground);
+  opacity: 1;
+}
+
 .aix-send-spin {
   width: 10px; height: 10px;
   border: 1.5px solid currentColor;
