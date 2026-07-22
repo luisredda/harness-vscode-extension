@@ -34,7 +34,7 @@ interface AidaTable {
 }
 
 interface ElicitationEvent {
-  type: 'yaml' | 'confirm' | 'free_text';
+  type: 'yaml' | 'confirm' | 'free_text' | 'select' | 'multi_select' | 'form';
   reviewId: string;
   title: string;
   subtitle: string;
@@ -657,7 +657,7 @@ function hydrateFromHistory(messages) {
       if (c.type === 'assistant_thought' && c.data && c.data.delta) thought += (c.data.delta.v || '');
       else if ((c.type === 'assistant_message' || c.type === 'text') && c.data) answer += (c.data.v || (c.data.delta && c.data.delta.v) || '');
       else if (c.type === 'table' && c.data && c.data.table) table = c.data.table;
-      else if ((c.type === 'elicitation_yaml' || c.type === 'elicitation_confirm' || c.type === 'elicitation_free_text') && c.data) elicitation = parseElicitationData(c.type, c.data);
+      else if ((c.type === 'elicitation_yaml' || c.type === 'elicitation_confirm' || c.type === 'elicitation_free_text' || c.type === 'elicitation_select' || c.type === 'elicitation_multi_select' || c.type === 'elicitation_form') && c.data) elicitation = parseElicitationData(c.type, c.data);
       else if (c.type === 'entity_mutation' && c.data) mutation = c.data;
     });
     const row = document.createElement('div');
@@ -700,7 +700,19 @@ function hydrateFromHistory(messages) {
 
 // Normalize a stored elicitation content payload into the shape renderElicitation expects.
 function parseElicitationData(type, data) {
-  const kind = type === 'elicitation_yaml' ? 'yaml' : type === 'elicitation_confirm' ? 'confirm' : 'free_text';
+  const kind = type === 'elicitation_yaml' ? 'yaml'
+    : type === 'elicitation_confirm' ? 'confirm'
+    : type === 'elicitation_select' ? 'select'
+    : type === 'elicitation_multi_select' ? 'multi_select'
+    : type === 'elicitation_form' ? 'form'
+    : 'free_text';
+  // In stored history the user's answer sits under resolved.result
+  // (form_values / selection / selections). Flatten it up so the render
+  // sites can read resolved.<field> directly, as they do for live events.
+  let resolved = data.resolved;
+  if (resolved && resolved.result) {
+    resolved = { ...resolved, ...resolved.result };
+  }
   return {
     type: kind,
     review_id: data.review_id || '',
@@ -710,7 +722,7 @@ function parseElicitationData(type, data) {
     actions: data.actions || [],
     entity_info: data.entity_info || {},
     tool_input: data.tool_input || {},
-    resolved: data.resolved,
+    resolved,
   };
 }
 
@@ -931,6 +943,21 @@ function handleSseEvent(event, data) {
     return;
   }
 
+  if (event === 'elicitation_select' && data) {
+    pendingElicitation = { type: 'select', ...data };
+    return;
+  }
+
+  if (event === 'elicitation_multi_select' && data) {
+    pendingElicitation = { type: 'multi_select', ...data };
+    return;
+  }
+
+  if (event === 'elicitation_form' && data) {
+    pendingElicitation = { type: 'form', ...data };
+    return;
+  }
+
   if (event === 'entity_mutation' && data) {
     appendEntityMutation(data);
     return;
@@ -1102,6 +1129,122 @@ function renderElicitation(elicitation, readOnly) {
         '<button class="ac-elix-btn ac-elix-btn-primary ac-elix-submit"' + disabledAttr + ' ' +
           'data-review-id="' + esc(elicitation.review_id) + '">Submit</button>' +
       '</div>';
+  } else if (elicitation.type === 'select') {
+    // Single-select submits a flat selection = the chosen item label.
+    const question = (elicitation.content || {}).question || elicitation.title || '';
+    const resolvedLabel = readOnly && elicitation.resolved ? elicitation.resolved.selection : null;
+    const items = (elicitation.content && elicitation.content.items) || [];
+    const submitAction = (elicitation.actions || []).find(a => a.id) || { id: 'respond', label: 'Submit' };
+    el.innerHTML =
+      '<div class="ac-elix-title">' + esc(elicitation.title || '') + '</div>' +
+      (elicitation.subtitle ? '<div class="ac-elix-subtitle">' + esc(elicitation.subtitle) + '</div>' : '') +
+      (question && question !== elicitation.title ? '<div class="ac-elix-question">' + esc(question) + '</div>' : '') +
+      '<div class="ac-elix-options" data-question="' + esc(question).replace(/"/g,'&quot;') + '">' +
+        items.map(it => {
+          const chosen = resolvedLabel != null && String(it.label) === String(resolvedLabel);
+          return '<button class="ac-elix-option' + (chosen ? ' ac-elix-option-chosen' : '') + '"' + disabledAttr + ' ' +
+            'data-item-id="' + esc(it.id) + '" data-item-label="' + esc(it.label || '').replace(/"/g,'&quot;') + '">' +
+            '<span class="ac-elix-option-label">' + esc(it.label || '') + (chosen ? ' ✓' : '') + '</span>' +
+            (it.description ? '<span class="ac-elix-option-desc">' + esc(it.description) + '</span>' : '') +
+          '</button>';
+        }).join('') +
+      '</div>' +
+      '<div class="ac-elix-actions">' +
+        '<button class="ac-elix-btn ac-elix-btn-primary ac-elix-submit" disabled ' +
+          'data-action-id="' + esc(submitAction.id) + '" ' +
+          'data-review-id="' + esc(elicitation.review_id) + '">' + esc(submitAction.label || 'Submit') + '</button>' +
+      '</div>' +
+      (readOnly && resolvedLabel != null ? '<div class="ac-elix-resolved-note">Resolved in a previous session.</div>' : '');
+  } else if (elicitation.type === 'multi_select') {
+    // Multi-select submits selections (array of labels) + selection (comma-joined).
+    const question = (elicitation.content || {}).question || elicitation.title || '';
+    const resolvedSelections = (readOnly && elicitation.resolved && elicitation.resolved.selections) || [];
+    const items = (elicitation.content && elicitation.content.items) || [];
+    const submitAction = (elicitation.actions || []).find(a => a.id) || { id: 'respond', label: 'Submit' };
+    el.innerHTML =
+      '<div class="ac-elix-title">' + esc(elicitation.title || '') + '</div>' +
+      (elicitation.subtitle ? '<div class="ac-elix-subtitle">' + esc(elicitation.subtitle) + '</div>' : '') +
+      (question && question !== elicitation.title ? '<div class="ac-elix-question">' + esc(question) + '</div>' : '') +
+      '<div class="ac-elix-hint">Select one or more options, then click Submit</div>' +
+      '<div class="ac-elix-options ac-elix-multi">' +
+        items.map(it => {
+          const chosen = resolvedSelections.map(String).indexOf(String(it.label)) !== -1;
+          return '<label class="ac-elix-option ac-elix-option-check' + (chosen ? ' ac-elix-option-chosen' : '') + '">' +
+            '<input type="checkbox" class="ac-elix-checkbox"' + disabledAttr + (chosen ? ' checked' : '') + ' ' +
+              'data-item-label="' + esc(it.label || '').replace(/"/g,'&quot;') + '">' +
+            '<span class="ac-elix-option-text">' +
+              '<span class="ac-elix-option-label">' + esc(it.label || '') + '</span>' +
+              (it.description ? '<span class="ac-elix-option-desc">' + esc(it.description) + '</span>' : '') +
+            '</span>' +
+          '</label>';
+        }).join('') +
+      '</div>' +
+      '<div class="ac-elix-actions">' +
+        '<button class="ac-elix-btn ac-elix-btn-primary ac-elix-submit ac-elix-submit-multi" disabled ' +
+          'data-action-id="' + esc(submitAction.id) + '" ' +
+          'data-submit-label="' + esc(submitAction.label || 'Submit') + '" ' +
+          'data-review-id="' + esc(elicitation.review_id) + '">' + esc(submitAction.label || 'Submit') + '</button>' +
+      '</div>' +
+      (readOnly && resolvedSelections.length ? '<div class="ac-elix-resolved-note">Resolved in a previous session.</div>' : '');
+  } else if (elicitation.type === 'form') {
+    // Multi-field form: each field is a select dropdown or a free-text input.
+    const resolvedValues = (readOnly && elicitation.resolved && elicitation.resolved.form_values) || {};
+    const fields = (elicitation.content && elicitation.content.fields) || [];
+    const submitAction = (elicitation.actions || []).find(a => a.id) || { id: 'respond', label: 'Submit' };
+    el.innerHTML =
+      '<div class="ac-elix-title">' + esc(elicitation.title || '') + '</div>' +
+      (elicitation.subtitle ? '<div class="ac-elix-subtitle">' + esc(elicitation.subtitle) + '</div>' : '') +
+      '<div class="ac-elix-fields">' +
+        fields.map(f => {
+          // The backend keys form_values by the field's human label, not its key.
+          const key = esc(f.label || f.key);
+          const saved = resolvedValues[f.label] != null ? resolvedValues[f.label] : resolvedValues[f.key];
+          const labelHtml =
+            '<div class="ac-elix-field-label">' + esc(f.label || '') + '</div>' +
+            (f.header ? '<div class="ac-elix-field-header">' + esc(f.header) + '</div>' : '');
+          if (f.type === 'select') {
+            const opts = '<option value=""' + (saved == null ? ' selected' : '') + ' disabled>Select…</option>' +
+              (f.options || []).map(o => {
+                const val = o.value != null ? o.value : o.label;
+                const sel = saved != null && String(saved) === String(val) ? ' selected' : '';
+                return '<option value="' + esc(val) + '"' + sel + '>' + esc(o.label || val) + '</option>';
+              }).join('');
+            return '<div class="ac-elix-field">' + labelHtml +
+              '<select class="ac-elix-field-select" data-field-key="' + key + '"' + disabledAttr + '>' + opts + '</select>' +
+            '</div>';
+          }
+          if (f.type === 'multi_select') {
+            // Value submits as an array of option values, keyed by field label.
+            const savedArr = Array.isArray(saved) ? saved.map(String) : [];
+            const boxes = (f.options || []).map(o => {
+              const val = o.value != null ? o.value : o.label;
+              const chk = savedArr.indexOf(String(val)) !== -1 ? ' checked' : '';
+              return '<label class="ac-elix-option ac-elix-option-check' + (chk ? ' ac-elix-option-chosen' : '') + '">' +
+                '<input type="checkbox" class="ac-elix-field-checkbox"' + disabledAttr + chk + ' ' +
+                  'data-field-key="' + key + '" data-option-value="' + esc(val).replace(/"/g,'&quot;') + '">' +
+                '<span class="ac-elix-option-text">' +
+                  '<span class="ac-elix-option-label">' + esc(o.label || val) + '</span>' +
+                  (o.description ? '<span class="ac-elix-option-desc">' + esc(o.description) + '</span>' : '') +
+                '</span>' +
+              '</label>';
+            }).join('');
+            return '<div class="ac-elix-field">' + labelHtml +
+              '<div class="ac-elix-options ac-elix-multi" data-field-key="' + key + '">' + boxes + '</div>' +
+            '</div>';
+          }
+          // text
+          return '<div class="ac-elix-field">' + labelHtml +
+            '<textarea class="ac-elix-field-text" data-field-key="' + key + '" ' +
+              'placeholder="' + esc(f.placeholder || 'Type your answer…') + '"' + disabledAttr + '>' + esc(saved != null ? String(saved) : '') + '</textarea>' +
+          '</div>';
+        }).join('') +
+      '</div>' +
+      '<div class="ac-elix-actions">' +
+        '<button class="ac-elix-btn ac-elix-btn-primary ac-elix-submit" disabled ' +
+          'data-action-id="' + esc(submitAction.id) + '" ' +
+          'data-review-id="' + esc(elicitation.review_id) + '">' + esc(submitAction.label || 'Submit') + '</button>' +
+      '</div>' +
+      (readOnly && Object.keys(resolvedValues).length ? '<div class="ac-elix-resolved-note">Resolved in a previous session.</div>' : '');
   }
 
   currentAssistantEl.appendChild(el);
@@ -1111,6 +1254,56 @@ function renderElicitation(elicitation, readOnly) {
     el.querySelectorAll('.ac-elix-btn').forEach(btn => {
       btn.addEventListener('click', handleElicitationAction);
     });
+    // Single-select option pills: pick one, then enable Submit.
+    const options = el.querySelectorAll('.ac-elix-options:not(.ac-elix-multi) .ac-elix-option');
+    if (options.length) {
+      const submitBtn = el.querySelector('.ac-elix-submit');
+      options.forEach(opt => {
+        opt.addEventListener('click', () => {
+          options.forEach(o => o.classList.remove('ac-elix-option-selected'));
+          opt.classList.add('ac-elix-option-selected');
+          if (submitBtn) submitBtn.disabled = false;
+        });
+      });
+    }
+    // Multi-select checkboxes: enable Submit with ≥1 checked; reflect count in label.
+    const checkboxes = el.querySelectorAll('.ac-elix-checkbox');
+    if (checkboxes.length) {
+      const submitBtn = el.querySelector('.ac-elix-submit-multi');
+      const baseLabel = submitBtn ? (submitBtn.dataset.submitLabel || 'Submit') : 'Submit';
+      const refresh = () => {
+        const count = Array.from(checkboxes).filter(cb => cb.checked).length;
+        checkboxes.forEach(cb => {
+          cb.closest('.ac-elix-option').classList.toggle('ac-elix-option-chosen', cb.checked);
+        });
+        if (submitBtn) {
+          submitBtn.disabled = count === 0;
+          submitBtn.textContent = count ? baseLabel + ' (' + count + ' selected)' : baseLabel;
+        }
+      };
+      checkboxes.forEach(cb => cb.addEventListener('change', refresh));
+    }
+    // Multi-field form: enable Submit once every field has a value.
+    const valueEls = el.querySelectorAll('.ac-elix-field-select, .ac-elix-field-text');
+    const multiGroups = el.querySelectorAll('.ac-elix-options.ac-elix-multi[data-field-key]');
+    if (valueEls.length || multiGroups.length) {
+      const submitBtn = el.querySelector('.ac-elix-submit');
+      const fieldCheckboxes = el.querySelectorAll('.ac-elix-field-checkbox');
+      const refresh = () => {
+        const valuesFilled = Array.from(valueEls).every(fe => String(fe.value || '').trim() !== '');
+        const multiFilled = Array.from(multiGroups).every(g => g.querySelector('.ac-elix-field-checkbox:checked'));
+        // Reflect checked state on each option pill.
+        fieldCheckboxes.forEach(cb => {
+          cb.closest('.ac-elix-option').classList.toggle('ac-elix-option-chosen', cb.checked);
+        });
+        if (submitBtn) submitBtn.disabled = !(valuesFilled && multiFilled);
+      };
+      valueEls.forEach(fe => {
+        fe.addEventListener('change', refresh);
+        fe.addEventListener('input', refresh);
+      });
+      fieldCheckboxes.forEach(cb => cb.addEventListener('change', refresh));
+    }
   }
 }
 
@@ -1132,6 +1325,33 @@ function handleElicitationAction(e) {
   const freeInput = elix && elix.querySelector('.ac-elix-input');
   const freeText = freeInput ? freeInput.value.trim() : undefined;
 
+  // Multi-select submits selections (array of labels) + selection (comma-joined).
+  let selection = undefined;
+  let selections = undefined;
+  const checkboxes = elix ? elix.querySelectorAll('.ac-elix-checkbox') : [];
+  if (checkboxes.length) {
+    selections = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.dataset.itemLabel || '');
+    selection = selections.join(', ');
+  } else {
+    // Single-select submits a flat selection = the chosen item label.
+    const selectedOption = elix && elix.querySelector('.ac-elix-option-selected');
+    if (selectedOption) selection = selectedOption.dataset.itemLabel || '';
+  }
+
+  // Multi-field form submits { form_values: { <field label>: value } }.
+  // select/text fields → string; multi_select fields → array of option values.
+  let formValues = undefined;
+  const fieldEls = elix ? elix.querySelectorAll('.ac-elix-field-select, .ac-elix-field-text') : [];
+  const multiGroups = elix ? elix.querySelectorAll('.ac-elix-options.ac-elix-multi[data-field-key]') : [];
+  if (fieldEls.length || multiGroups.length) {
+    formValues = {};
+    fieldEls.forEach(fe => { formValues[fe.dataset.fieldKey] = String(fe.value || '').trim(); });
+    multiGroups.forEach(g => {
+      const checked = g.querySelectorAll('.ac-elix-field-checkbox:checked');
+      formValues[g.dataset.fieldKey] = Array.from(checked).map(cb => cb.dataset.optionValue || '');
+    });
+  }
+
   const eventType = sends === 'action_cancelled' ? 'action_cancelled' : 'action_completed';
   const success   = eventType === 'action_completed';
 
@@ -1140,6 +1360,9 @@ function handleElicitationAction(e) {
     action_id: actionId,
     ...(yaml ? { yaml, entity_type: entityType, entity_info: entityInfo, request_action: requestAction, tool_input: toolInput } : {}),
     ...(freeText !== undefined ? { free_text: freeText } : {}),
+    ...(selection !== undefined ? { selection } : {}),
+    ...(selections !== undefined ? { selections } : {}),
+    ...(formValues !== undefined ? { form_values: formValues } : {}),
   };
 
   const systemEvent = {
@@ -1148,8 +1371,12 @@ function handleElicitationAction(e) {
     result,
   };
 
-  // Disable buttons
-  if (elix) elix.querySelectorAll('.ac-elix-btn').forEach(b => { b.disabled = true; });
+  // Lock the whole card once submitted — buttons, option pills, and form fields —
+  // so editing a value afterward can't re-enable Submit.
+  if (elix) {
+    elix.querySelectorAll('.ac-elix-btn, .ac-elix-option, .ac-elix-checkbox, .ac-elix-field-checkbox, .ac-elix-field-select, .ac-elix-field-text, .ac-elix-input')
+      .forEach(node => { node.disabled = true; });
+  }
 
   sendMessage('', conversationId, systemEvent);
 }
@@ -1786,6 +2013,87 @@ body {
 /* Read-only history elicitations: the action the user actually took stays highlighted */
 .ac-elix-btn-chosen { opacity: 1 !important; border-color: var(--ac-btn-bg); box-shadow: 0 0 0 1px var(--ac-btn-bg) inset; font-weight: 600; }
 .ac-elix-resolved-note { margin-top: 8px; font-size: 11px; font-style: italic; color: var(--ac-fg-dim); }
+
+/* Single-select option pills */
+.ac-elix-options { display: flex; flex-direction: column; gap: 6px; }
+.ac-elix-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 12px;
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius);
+  background: var(--ac-input-bg);
+  color: var(--ac-fg);
+  cursor: pointer;
+  transition: border-color 0.1s, background 0.1s;
+}
+.ac-elix-option:not(:disabled):hover { border-color: var(--ac-focus); background: var(--ac-hover); }
+.ac-elix-option:disabled { opacity: 0.5; cursor: not-allowed; }
+.ac-elix-option-selected {
+  border-color: var(--ac-btn-bg);
+  box-shadow: 0 0 0 1px var(--ac-btn-bg) inset;
+  background: var(--ac-hover);
+}
+.ac-elix-option-chosen {
+  border-color: var(--ac-btn-bg);
+  box-shadow: 0 0 0 1px var(--ac-btn-bg) inset;
+}
+.ac-elix-option-label { font-size: 13px; font-weight: 500; }
+.ac-elix-option-desc { font-size: 12px; color: var(--ac-fg-muted); }
+
+/* Multi-select checkboxes */
+.ac-elix-hint { font-size: 12px; color: var(--ac-fg-muted); }
+.ac-elix-option-check {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+}
+.ac-elix-checkbox,
+.ac-elix-field-checkbox {
+  margin: 2px 0 0;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  accent-color: var(--ac-btn-bg);
+  cursor: pointer;
+}
+.ac-elix-checkbox:disabled,
+.ac-elix-field-checkbox:disabled { cursor: not-allowed; }
+.ac-elix-option-text { display: flex; flex-direction: column; gap: 2px; }
+
+/* Multi-field form */
+.ac-elix-fields { display: flex; flex-direction: column; gap: 12px; }
+.ac-elix-field { display: flex; flex-direction: column; gap: 4px; }
+.ac-elix-field-label { font-size: 13px; font-weight: 500; color: var(--ac-fg); }
+.ac-elix-field-header { font-size: 11px; color: var(--ac-fg-muted); }
+.ac-elix-field-select {
+  width: 100%;
+  background: var(--ac-input-bg);
+  color: var(--ac-fg);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius);
+  padding: 7px 10px;
+  font: 13px/1.4 var(--ac-font);
+  outline: none;
+  cursor: pointer;
+}
+.ac-elix-field-select:focus { border-color: var(--ac-focus); }
+.ac-elix-field-select:disabled { opacity: 0.5; cursor: not-allowed; }
+.ac-elix-field-text {
+  width: 100%;
+  background: var(--ac-input-bg);
+  color: var(--ac-fg);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius);
+  padding: 8px 10px;
+  font: 13px/1.4 var(--ac-font);
+  resize: none;
+  min-height: 56px;
+  outline: none;
+}
+.ac-elix-field-text:focus { border-color: var(--ac-focus); }
 
 /* ── Feedback buttons ────────────────────────────────────────────────────── */
 .ac-feedback { display: flex; gap: 2px; margin-top: 8px; }
