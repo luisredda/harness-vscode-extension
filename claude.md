@@ -42,6 +42,7 @@ A VS Code sidebar extension that surfaces Harness pipeline execution (CI, CD, ST
 | `src/ai/detector.ts` | Detects Claude Code CLI/Extension/Cursor and checks MCP configuration |
 | `src/ai/mcpConfigurer.ts` | Writes Harness MCP server config to `~/.claude.json` |
 | `src/ai/launcher.ts` | Launches Claude Code CLI/Extension or Cursor with prompts |
+| `src/ai/aidaChatPanel.ts` | Harness Intelligence chat panel — SSE streaming, markdown, history, and interactive elicitation cards |
 
 ---
 
@@ -281,6 +282,47 @@ Supports **Claude Code** (CLI/Extension), **Cursor AI**, and **GitHub Copilot** 
 - Harness execution URL
 
 **Tool preference persists** across sessions via VS Code globalState.
+
+---
+
+## Harness Intelligence Chat (`src/ai/aidaChatPanel.ts`)
+
+A webview **panel** (separate from the sidebar) that streams from the Harness
+Intelligence chat API and renders full markdown + session history.
+
+**Endpoint (SSE):**
+```
+POST /gateway/harness-intelligence/api/v2/chat?is_v2=false&orgIdentifier=…&projectIdentifier=…
+  body: { prompt, context:{currentUrl}, metadata, conversation:[], conversation_id?, system_event?, stream:true }
+  → text/event-stream
+```
+The host reads the stream, forwards each `event:`/`data:` pair to the webview as
+`STREAM_EVENT`, and `handleSseEvent` dispatches on the event name.
+
+**Request `context`:** only `currentUrl` observed in captures — the backend
+parses account/org/project/pipeline/stage from the Harness UI URL (same
+URL-extraction pattern as the Harness MCP server).
+
+### Elicitations
+
+Interactive cards emitted mid-stream to collect input. `renderElicitation`
+draws them; on submit the webview posts a `system_event`
+(`{ event_type, capability_id, result }`) back through the same endpoint.
+
+| SSE event | UI | `result` field |
+|-----------|----|----------------|
+| `elicitation_yaml` / `elicitation_confirm` | YAML/confirm card + action buttons | `action_id` (+ `yaml`, entity info) |
+| `elicitation_free_text` | textarea | `free_text` |
+| `elicitation_select` | option pills (single) | `selection` = chosen label |
+| `elicitation_multi_select` | checkboxes (multi) | `selections` (array) + `selection` (comma-joined) |
+| `elicitation_form` | per-field: `select`→dropdown, `multi_select`→checkboxes, `text`→textarea | `form_values` keyed by **field label**; `multi_select` → array |
+
+- **Contracts verified** against live web-app SSE + request captures (Chrome
+  DevTools MCP) — field names are exact, not guessed.
+- Cards **lock on submit** so a later edit can't re-enable Submit.
+- **History:** stored answers live under `resolved.result`;
+  `parseElicitationData` flattens `resolved.result` into `resolved` so read-only
+  replay highlights the previously-chosen options.
 
 ---
 
