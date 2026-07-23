@@ -42,7 +42,7 @@ A VS Code sidebar extension that surfaces Harness pipeline execution (CI, CD, ST
 | `src/ai/detector.ts` | Detects Claude Code CLI/Extension/Cursor and checks MCP configuration |
 | `src/ai/mcpConfigurer.ts` | Writes Harness MCP server config to `~/.claude.json` |
 | `src/ai/launcher.ts` | Launches Claude Code CLI/Extension or Cursor with prompts |
-| `src/ai/aidaChatPanel.ts` | Harness Intelligence chat panel — SSE streaming, markdown, history, and interactive elicitation cards |
+| `src/ai/aidaChatPanel.ts` | Harness AI Chat panel — SSE streaming, markdown, history, elicitation cards, pipeline-context chip, MCP connector pill |
 
 ---
 
@@ -285,10 +285,13 @@ Supports **Claude Code** (CLI/Extension), **Cursor AI**, and **GitHub Copilot** 
 
 ---
 
-## Harness Intelligence Chat (`src/ai/aidaChatPanel.ts`)
+## Harness AI Chat (`src/ai/aidaChatPanel.ts`)
 
-A webview **panel** (separate from the sidebar) that streams from the Harness
-Intelligence chat API and renders full markdown + session history.
+A webview **panel** (separate from the sidebar), surfaced as **"Harness AI
+Chat"** (tab title, input placeholder, disclaimer), that streams from the
+Harness Intelligence chat API and renders full markdown + session history.
+The layout mirrors the web chat: greeting centered vertically, quick chips
+grouped near the input, clean header with no title/logo.
 
 **Endpoint (SSE):**
 ```
@@ -302,6 +305,37 @@ The host reads the stream, forwards each `event:`/`data:` pair to the webview as
 **Request `context`:** only `currentUrl` observed in captures — the backend
 parses account/org/project/pipeline/stage from the Harness UI URL (same
 URL-extraction pattern as the Harness MCP server).
+
+### Pipeline-context chip
+
+Shows which pipeline/execution the chat is scoped to and keeps it in sync as
+the user navigates — an improvement over the web chat, which sends `currentUrl`
+silently with no visible indicator.
+
+- **Auto-follow:** `extension.ts` tracks `currentViewedExecution`; on identity
+  change it calls `updateActiveChatContext()` → posts `SET_CONTEXT` to the open
+  panel. Guarded by `lastSyncedContextKey` so poll ticks don't spam it.
+- **Chip:** `renderContextChip()` draws `Context: <pipeline> ×`; it pulses
+  (`ac-context-flash`) when context auto-updates on navigation.
+- **Remove (×):** sets `contextCleared`, hides the chip, and stops sending
+  `currentUrl` (chat goes context-free). Navigating to a new pipeline
+  re-attaches context and clears the flag.
+
+### MCP connectors
+
+External MCP connectors (Jira, GitHub, …) are enabled **per-user-per-project**
+via a backend setting — the chat request/body is identical whether or not they
+apply; the backend injects the tools from the stored setting keyed on the
+authenticated user + project. So a chat scoped to a project without connectors
+silently has no external tools.
+
+- On open, `fetchSelectedConnectorIds()` GETs
+  `/api/v1/user-settings/selected_connector_ids?orgIdentifier=…&projectIdentifier=…`
+  (`{ value: "id1,id2" }`), and a status **pill** (`ac-mcp-pill`) in the input
+  footer shows `MCP · N connectors` (green) or `MCP · none`, with a hover
+  tooltip listing the connector names or explaining none are configured.
+- Verified via curl + browser captures: works over PAT (`x-api-key`); the only
+  variable is which **project** the extension points at.
 
 ### Elicitations
 
