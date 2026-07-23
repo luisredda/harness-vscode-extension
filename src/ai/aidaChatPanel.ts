@@ -76,6 +76,14 @@ export interface IntelligenceChatContext {
 
 const activePanel: { panel?: vscode.WebviewPanel } = {};
 
+// Push updated context to an already-open chat panel (auto-follow on navigation).
+// No-op if the panel isn't open. Lets the extension keep the chat's pipeline
+// context in sync as the user navigates to different executions.
+export function updateActiveChatContext(chatContext: IntelligenceChatContext): void {
+  if (!activePanel.panel) { return; }
+  activePanel.panel.webview.postMessage({ type: 'SET_CONTEXT', context: chatContext });
+}
+
 export async function openAidaChatPanel(
   vsContext: vscode.ExtensionContext,
   configManager: ConfigManager,
@@ -94,7 +102,7 @@ export async function openAidaChatPanel(
 
   const panel = vscode.window.createWebviewPanel(
     'harnessIntelligenceChat',
-    'Harness Intelligence',
+    'Harness AI Chat',
     { viewColumn: vscode.ViewColumn.Two, preserveFocus: false },
     {
       enableScripts: true,
@@ -416,7 +424,7 @@ function buildHtml(_panel: vscode.WebviewPanel, cfg: AidaChatConfig, chatContext
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Harness Intelligence</title>
+<title>Harness AI Chat</title>
 <style nonce="${nonce}">
 ${CSS}
 </style>
@@ -429,7 +437,7 @@ ${GREETING_HTML}
 </div>
 ${HISTORY_HTML}
 ${INPUT_HTML}
-<div class="ac-disclaimer" id="ac-disclaimer">Harness Intelligence can make mistakes. Check answers.</div>
+<div class="ac-disclaimer" id="ac-disclaimer">Harness AI can make mistakes. Check answers.</div>
 
 ${markedScript ? `<script nonce="${nonce}">${markedScript}</script>` : ''}
 <script nonce="${nonce}">
@@ -464,6 +472,9 @@ let pendingTable = null;
 let feedbackReasons = [];
 let currentAssistantEl = null;
 let pendingElicitation = null;
+// When the user removes the pipeline-context chip, we stop sending currentUrl
+// until new context arrives (navigating re-attaches it).
+let contextCleared = false;
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const messagesEl = document.getElementById('ac-messages');
@@ -508,7 +519,7 @@ function showChatView() {
   if (inputWrapEl) inputWrapEl.style.display = '';
   if (disclaimerEl) disclaimerEl.style.display = '';
   historyBackBtn.style.display = 'none';
-  headerTitleEl.textContent = 'Harness Intelligence';
+  headerTitleEl.textContent = '';
 }
 
 function showHistoryView() {
@@ -662,8 +673,6 @@ function openSession(session) {
   sessionId = session.id || undefined;
   interactionId = undefined;
   messagesEl.innerHTML = '<div class="ac-history-empty">Loading conversation…</div>';
-  const chip = document.getElementById('ac-context-chip');
-  if (chip && session.title) { chip.textContent = session.title; chip.style.display = 'inline-flex'; }
   vscode.postMessage({ type: 'LOAD_SESSION', sessionId: session.id, conversationId: session.conversation_id, title: session.title });
 }
 
@@ -823,6 +832,42 @@ function renderMcpPill(count, org, project, connectors) {
   pill.style.display = 'inline-flex';
 }
 
+// Render the pipeline-context chip in the header. Shows which pipeline the
+// chat is scoped to, with an × to ask without it. The highlight flag briefly
+// pulses the chip when context auto-updates on navigation.
+function renderContextChip(pipelineName, highlight) {
+  const chip = document.getElementById('ac-context-chip');
+  if (!chip) return;
+  if (!pipelineName || contextCleared) {
+    chip.style.display = 'none';
+    chip.innerHTML = '';
+    return;
+  }
+  chip.innerHTML =
+    '<span class="ac-context-label">Context: ' + esc(pipelineName) + '</span>' +
+    '<button class="ac-context-remove" title="Ask without this pipeline context" aria-label="Remove context">' +
+      '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 16 16" width="12" height="12">' +
+        '<path stroke="currentColor" stroke-linecap="round" stroke-width="1.5" d="m4 4 8 8M12 4l-8 8"/>' +
+      '</svg>' +
+    '</button>';
+  chip.style.display = 'inline-flex';
+  chip.title = 'This pipeline context is sent to Harness AI.';
+  const removeBtn = chip.querySelector('.ac-context-remove');
+  if (removeBtn) {
+    removeBtn.addEventListener('click', () => {
+      contextCleared = true;
+      chip.style.display = 'none';
+      chip.innerHTML = '';
+    });
+  }
+  if (highlight) {
+    chip.classList.remove('ac-context-flash');
+    // Force reflow so the animation restarts on repeated updates.
+    void chip.offsetWidth;
+    chip.classList.add('ac-context-flash');
+  }
+}
+
 function sendMessage(prompt, convId, systemEvent) {
   // Remove greeting if present
   const greeting = messagesEl.querySelector('.ac-greeting-wrap');
@@ -848,7 +893,7 @@ function sendMessage(prompt, convId, systemEvent) {
     prompt,
     conversationId: convId,
     module: CFG.module,
-    currentUrl: CFG.currentUrl,
+    currentUrl: contextCleared ? undefined : CFG.currentUrl,
     systemEvent,
   });
 }
@@ -872,17 +917,13 @@ window.addEventListener('message', (e) => {
   if (msg.type === 'SET_CONTEXT') {
     const ctx = msg.context;
     if (!ctx) return;
-    // Update CFG with new context so next message uses the right URL/module
+    // New context arriving (e.g. navigated to another pipeline) re-attaches
+    // context even if the user had removed the previous one.
+    const changed = ctx.currentUrl !== CFG.currentUrl;
     if (ctx.currentUrl) CFG.currentUrl = ctx.currentUrl;
     if (ctx.module)     CFG.module     = ctx.module;
-    // Show context chip in header if there's an active pipeline
-    if (ctx.pipelineName) {
-      const chip = document.getElementById('ac-context-chip');
-      if (chip) {
-        chip.textContent = ctx.pipelineName;
-        chip.style.display = 'inline-flex';
-      }
-    }
+    if (changed) contextCleared = false;
+    renderContextChip(ctx.pipelineName, changed);
     // Pre-fill prompt if supplied
     if (ctx.initialPrompt) {
       textarea.value = ctx.initialPrompt;
@@ -1708,19 +1749,45 @@ body {
 }
 /* Context chip — shows active pipeline/execution name next to the title */
 .ac-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 11px;
   font-weight: 500;
-  padding: 1px 7px;
+  padding: 2px 4px 2px 8px;
   border-radius: 10px;
   background: var(--vscode-badge-background, lch(84% 3.5 272));
   color: var(--vscode-badge-foreground, lch(13% 10 279));
-  max-width: 140px;
+  max-width: 220px;
+  margin-left: 4px;
+}
+.ac-context-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  align-items: center;
-  margin-left: 4px;
 }
+.ac-context-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px; height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.ac-context-remove:hover { opacity: 1; background: rgba(127,127,127,0.25); }
+/* Brief pulse when context auto-updates on navigation. */
+@keyframes ac-context-flash {
+  0%   { box-shadow: 0 0 0 0 var(--ac-btn-bg); }
+  30%  { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ac-btn-bg) 45%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.ac-context-flash { animation: ac-context-flash 0.9s ease-out; }
 .ac-header-actions { display: flex; gap: 2px; }
 .ac-icon-btn {
   width: 28px; height: 28px;
@@ -1754,16 +1821,24 @@ body {
 }
 
 /* ── Greeting (empty state) ──────────────────────────────────────────────────
-   Matches the Harness UI: content is centered horizontally and bottom-aligned
-   (sits just above the input), filling the full message-area height. */
+   Matches the Harness UI: the greeting is centered vertically and the quick
+   chips sit at the bottom near the input, filling the message-area height. */
 .ac-greeting-wrap {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
   gap: 28px;
   padding: 8px 0 4px;
+}
+/* Two auto top-margins split the free space evenly: the greeting lands near
+   the vertical center and the chips sit at the bottom near the input,
+   matching the Harness web chat. */
+.ac-greeting {
+  margin-top: auto;
+}
+.ac-chips {
+  margin-top: auto;
 }
 .ac-greeting {
   display: flex;
@@ -2518,8 +2593,7 @@ const HEADER_HTML = `<div class="ac-header">
         <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M10 3 5 8l5 5"/>
       </svg>
     </button>
-    ${DIAMOND_SVG_20}
-    <span class="ac-header-title" id="ac-header-title">Harness Intelligence</span>
+    <span class="ac-header-title" id="ac-header-title"></span>
     <span class="ac-context-chip" id="ac-context-chip" style="display:none"></span>
   </div>
   <div class="ac-header-actions">
@@ -2562,7 +2636,7 @@ const INPUT_HTML = `<div class="ac-input-wrapper">
     <textarea
       class="ac-textarea"
       id="ac-textarea"
-      placeholder="Ask Harness Intelligence…"
+      placeholder="Ask Harness AI Chat…"
       rows="1"
     ></textarea>
     <div class="ac-form-footer">

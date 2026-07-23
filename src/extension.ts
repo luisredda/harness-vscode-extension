@@ -19,7 +19,7 @@ import { initFmeClient, destroyFmeClient, getLogViewerVariation } from './fme/fm
 import { LogContentProvider, LOG_SCHEME } from './logs/logContentProvider';
 import { openLogAsEditorTab } from './logs/logEditorTab';
 import { openAgentChatTab, isAgentLog } from './logs/agentChatTab';
-import { openAidaChatPanel } from './ai/aidaChatPanel';
+import { openAidaChatPanel, updateActiveChatContext, type IntelligenceChatContext } from './ai/aidaChatPanel';
 import { detectAITools } from './ai/detector';
 import { configureMCP, configureCopilotMCP } from './ai/mcpConfigurer';
 import { buildPrompt } from './ai/promptBuilder';
@@ -706,6 +706,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Track currently viewed execution for export
   let currentViewedExecution: { execution: any; executionGraph?: any; source: 'live' | 'history' } | null = null;
 
+  // Build the chat context (pipeline URL + label) from the currently viewed
+  // execution, or a general ai-agents context when nothing is open. Shared by
+  // both the open-chat command and the auto-follow hook so they never diverge.
+  const buildChatContext = (
+    cfg: { baseUrl: string; accountIdentifier: string; orgIdentifier: string; projectIdentifier: string },
+  ): IntelligenceChatContext => {
+    const { baseUrl, accountIdentifier, orgIdentifier, projectIdentifier } = cfg;
+    if (currentViewedExecution?.execution) {
+      const ex = currentViewedExecution.execution;
+      const mi = ex.moduleInfo ?? {};
+      const module = mi.sto ? 'sto' : mi.ci ? 'ci' : mi.cd ? 'cd' : 'ai-agents';
+      return {
+        currentUrl: `${baseUrl}/ng/account/${accountIdentifier}/all/orgs/${orgIdentifier}/projects/${projectIdentifier}/pipelines/${ex.pipelineIdentifier}/deployments/${ex.planExecutionId}/pipeline`,
+        module,
+        pipelineName: ex.name ?? ex.pipelineIdentifier,
+        planExecutionId: ex.planExecutionId,
+      };
+    }
+    return {
+      currentUrl: `${baseUrl}/ng/account/${accountIdentifier}/module/ai-agents/orgs/${orgIdentifier}/projects/${projectIdentifier}/worker-agents`,
+      module: 'ai-agents',
+    };
+  };
+
+  // Auto-follow: whenever the viewed execution changes, keep an open chat's
+  // context in sync (no-op if the chat panel isn't open).
+  // Only push context to the chat when the viewed execution's identity changes
+  // (EXECUTION_UPDATE fires on every poll tick — we don't want to spam/re-highlight).
+  let lastSyncedContextKey: string | undefined;
+  const syncChatContext = () => {
+    if (!currentConfig) { return; }
+    const key = currentViewedExecution?.execution?.planExecutionId ?? '__none__';
+    if (key === lastSyncedContextKey) { return; }
+    lastSyncedContextKey = key;
+    updateActiveChatContext(buildChatContext(currentConfig));
+  };
+
   // Update status bar from execution messages + track current execution
   const origSend = bridge.send.bind(bridge);
   bridge.send = (message) => {
@@ -726,6 +763,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         planExecutionId: message.execution.planExecutionId,
         hasGraph: !!message.executionGraph,
       });
+      syncChatContext();
     } else if (message.type === 'EXECUTION_UPDATE') {
       const ex = message.execution;
       statusBar.updateFromStatus(ex.status, ex.name ?? ex.pipelineIdentifier ?? 'Pipeline');
@@ -742,6 +780,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           planExecutionId: ex.planExecutionId,
           hasGraph: !!message.executionGraph,
         });
+        syncChatContext();
       } else {
         // Update the execution data but keep source as 'history'
         currentViewedExecution.execution = ex;
@@ -759,6 +798,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (currentViewedExecution?.source === 'live') {
         currentViewedExecution = null;
         logger.debug('Extension', 'Cleared live execution (NO_EXECUTION)');
+        syncChatContext();
       } else {
         logger.debug('Extension', 'Keeping execution (not from live mode)');
       }
