@@ -173,6 +173,19 @@ export async function openAidaChatPanel(
       panel.webview.postMessage({ type: 'SET_CONTEXT', context: chatContext });
     }, 150);
   }
+
+  // Check whether this org/project has any MCP connectors selected. If none,
+  // the webview shows a greeting hint so the user understands why external
+  // tools (Jira, GitHub, …) aren't available in this project's chat.
+  void fetchSelectedConnectorIds(cfg).then((ids) => {
+    panel.webview.postMessage({
+      type: 'MCP_CONNECTOR_STATUS',
+      count: ids.length,
+      connectors: ids,
+      org: cfg.orgId,
+      project: cfg.projectId,
+    });
+  });
 }
 
 // ── Config ─────────────────────────────────────────────────────────────────────
@@ -307,6 +320,26 @@ async function submitFeedback(
 }
 
 // ── Session management ───────────────────────────────────────────────────────────
+
+// GET the MCP connector IDs the user has selected for this org/project.
+// The setting is per-user-per-project; an empty value means no external MCP
+// tools are available in chat for the current project. Returns [] on any error
+// so a failed read never surfaces a misleading hint.
+async function fetchSelectedConnectorIds(cfg: AidaChatConfig): Promise<string[]> {
+  const url = `${cfg.baseUrl}/gateway/harness-intelligence/api/v1/user-settings/selected_connector_ids?orgIdentifier=${encodeURIComponent(cfg.orgId)}&projectIdentifier=${encodeURIComponent(cfg.projectId)}`;
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { 'harness-account': cfg.accountId, 'x-api-key': cfg.apiKey },
+    });
+    if (!res.ok) { return []; }
+    const data = await res.json() as { value?: string };
+    return (data.value || '').split(',').map(s => s.trim()).filter(Boolean);
+  } catch (err) {
+    logger.warn('AidaChatPanel', 'Could not fetch selected MCP connectors', err);
+    return [];
+  }
+}
 
 // GET all sessions for the authenticated user (across orgs/projects).
 async function fetchSessions(cfg: AidaChatConfig, page = 0, size = 50): Promise<unknown[]> {
@@ -770,6 +803,26 @@ form.addEventListener('submit', (e) => {
   sendMessage(prompt, conversationId);
 });
 
+// Reflect MCP connector availability for the current project as a small pill
+// beside the input, with an explanatory tooltip. Connectors are per-project, so
+// this tells the user at a glance whether external tools (Jira, GitHub, …) are
+// available here. Hidden entirely if the status is unknown (fetch failed).
+function renderMcpPill(count, org, project, connectors) {
+  const pill = document.getElementById('ac-mcp-pill');
+  if (!pill) return;
+  if (count > 0) {
+    const bullets = (connectors || []).map(function (c) { return '•  ' + c; }).join('\\n');
+    pill.className = 'ac-mcp-pill ac-mcp-on';
+    pill.textContent = 'MCP · ' + count + (count === 1 ? ' connector' : ' connectors');
+    pill.setAttribute('data-tooltip', 'Available in this chat:\\n' + bullets);
+  } else {
+    pill.className = 'ac-mcp-pill';
+    pill.textContent = 'MCP · none';
+    pill.setAttribute('data-tooltip', 'No MCP configured in Harness for the current scope.');
+  }
+  pill.style.display = 'inline-flex';
+}
+
 function sendMessage(prompt, convId, systemEvent) {
   // Remove greeting if present
   const greeting = messagesEl.querySelector('.ac-greeting-wrap');
@@ -808,6 +861,11 @@ window.addEventListener('message', (e) => {
     textarea.value = msg.prompt;
     sendBtn.disabled = false;
     textarea.focus();
+    return;
+  }
+
+  if (msg.type === 'MCP_CONNECTOR_STATUS') {
+    renderMcpPill(msg.count, msg.org, msg.project, msg.connectors);
     return;
   }
 
@@ -1720,6 +1778,7 @@ body {
   display: inline-flex;
 }
 
+
 /* ── Quick action chips ───────────────────────────────────────────────────────
    Auto-width (hug content), left-aligned, with a leading icon — like Harness. */
 .ac-chips {
@@ -2232,7 +2291,54 @@ body {
 .ac-form-footer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* MCP connector status pill (bottom-left of the input) */
+.ac-mcp-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ac-fg-muted);
+  padding: 3px 9px 3px 8px;
+  border: 1px solid var(--ac-border);
+  border-radius: 9999px;
+  cursor: default;
+  user-select: none;
+  max-width: 70%;
+  white-space: nowrap;
+  overflow: visible;
+}
+.ac-mcp-pill::before {
+  content: '';
+  width: 6px; height: 6px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+  background: var(--ac-fg-dim);
+}
+.ac-mcp-pill.ac-mcp-on::before { background: #3fb950; }
+/* CSS tooltip — native title is unreliable in webviews. Shown above the pill. */
+.ac-mcp-pill[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 10;
+  max-width: 280px;
+  width: max-content;
+  white-space: pre-line;
+  padding: 6px 9px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ac-fg);
+  background: var(--vscode-editorWidget-background, var(--ac-input-bg));
+  border: 1px solid var(--ac-border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  pointer-events: none;
 }
 
 /* ── Send button (circular) / Stop button (rounded square) ──────────────── */
@@ -2460,6 +2566,7 @@ const INPUT_HTML = `<div class="ac-input-wrapper">
       rows="1"
     ></textarea>
     <div class="ac-form-footer">
+      <span class="ac-mcp-pill" id="ac-mcp-pill" style="display:none"></span>
       <button class="ac-send" id="ac-send" type="submit" disabled title="Send">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 16 16" width="14" height="14">
           <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M8 14V2M2.333 7.667 8 2l5.667 5.667"/>
