@@ -1664,6 +1664,28 @@ body {
   opacity: 0.9;
 }
 
+/* ── Uniform two-line execution row ─────────────────────────────── */
+.ei-row { align-items: center; }        /* dot centers on the two-line body */
+.ei-row .ei-dot { margin-top: 0; }
+.ei-row .ei-body { display: flex; flex-direction: column; gap: 3px; }
+.ei-row .ei-top { margin-bottom: 0; }
+.ei-row .ei-name { flex: 1 1 auto; }
+.ei-row .ei-dur { margin-left: 2px; }
+
+/* meta = single non-wrapping line; only the branch ellipsizes */
+.ei-row .ei-meta {
+  display: flex; align-items: center; gap: 6px;
+  flex-wrap: nowrap; overflow: hidden; margin-bottom: 0;
+}
+.ei-row .ei-meta > * { flex-shrink: 0; }
+.ei-row .ei-branch { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ei-sep { opacity: .5; }
+.ei-row .ei-tags { display: inline-flex; gap: 4px; margin-left: auto; flex-shrink: 0; flex-wrap: nowrap; }
+
+/* Ignore-failed = warning, distinct from a hard failure */
+.ei-dot.ign   { background: var(--vscode-charts-yellow, #e2b714); }
+.ei-badge.ign { background: var(--vscode-charts-yellow, #e2b714); color: var(--vscode-editor-background); }
+
 .empty-history {
   padding: 40px 20px;
   text-align: center;
@@ -1726,6 +1748,30 @@ body {
   color: var(--vscode-descriptionForeground);
   opacity: 0.6;
 }
+
+/* ── Load more footer (replaces the numbered pager) ─────────────── */
+.load-more {
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editor-background);
+}
+.load-more-btn {
+  width: 100%;
+  padding: 7px 0;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--vscode-foreground);
+  background: var(--vscode-button-secondaryBackground, transparent);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.load-more-btn:hover { border-color: var(--vscode-focusBorder); color: var(--vscode-textLink-foreground); }
+.load-more-btn:disabled { opacity: .6; cursor: default; }
+.load-more-btn .spinner { display: inline-block; animation: pulse 1.2s linear infinite; }
+.theme-enhanced .load-more-btn { background: var(--bg-1); }
+.theme-enhanced .load-more-btn:hover { border-color: var(--accent-ring); color: var(--accent); }
 
 /* ── Back navigation bar ──────────────────────────── */
 .back-bar {
@@ -3272,6 +3318,19 @@ a[data-action="openUrl"] { cursor: pointer; }
 .theme-enhanced-dark , .theme-enhanced-light .ei-sha  { color: var(--primary); }
 .theme-enhanced-dark , .theme-enhanced-light .ei-branch { color: var(--secondary); opacity: .8; font-family: var(--font-sans); }
 
+/* Correct dot/badge classes to match the JS (.f/.r/.ab/.ign), and add
+   ignore-failed as a warning. The base-theme block already uses the right
+   classes; these mirror it for the enhanced themes. */
+.theme-enhanced-dark .ei-dot.f, .theme-enhanced-light .ei-dot.f   { background: var(--error); }
+.theme-enhanced-dark .ei-dot.r, .theme-enhanced-light .ei-dot.r   { background: var(--primary); animation: pulse 1.4s infinite; }
+.theme-enhanced-dark .ei-dot.ab, .theme-enhanced-light .ei-dot.ab { background: var(--outline); }
+.theme-enhanced-dark .ei-dot.ign, .theme-enhanced-light .ei-dot.ign { background: var(--warn); }
+.theme-enhanced-dark .ei-badge.f, .theme-enhanced-light .ei-badge.f     { background: var(--error-bg); color: var(--error); }
+.theme-enhanced-dark .ei-badge.r, .theme-enhanced-light .ei-badge.r     { background: var(--running-bg); color: var(--running); }
+.theme-enhanced-dark .ei-badge.ab, .theme-enhanced-light .ei-badge.ab   { background: var(--bg-3); color: var(--outline); }
+.theme-enhanced-dark .ei-badge.ign, .theme-enhanced-light .ei-badge.ign { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+.theme-enhanced-dark .ei-meta, .theme-enhanced-light .ei-meta { flex-wrap: nowrap; }
+
 .theme-enhanced-dark .ei-cur-tag, .theme-enhanced-light .ei-cur-tag {
   font-size: 9px;
   padding: 1px 6px;
@@ -4229,6 +4288,66 @@ a[data-action="openUrl"] { cursor: pointer; }
   padding: 4px 8px 2px; font-size: 10px; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.06em;
 }
 .hist-sort-menu .menu-div { height: 1px; background: var(--vscode-panel-border); margin: 3px 0; }
+
+/* ── Time-range control (mirrors the sort menu) ─────────────────── */
+.hist-range-wrap { position: relative; display: inline-flex; z-index: 1; }
+.hist-range-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 22px; padding: 0 8px;
+  background: var(--vscode-button-secondaryBackground);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 3px;
+  color: var(--vscode-foreground);
+  font-size: 10.5px; cursor: pointer;
+}
+.hist-range-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
+.hist-range-btn.modified { border-color: var(--vscode-focusBorder); }
+.hist-range-btn .caret { opacity: 0.6; font-size: 8px; }
+.hist-range-scrim { position: fixed; inset: 0; z-index: 100; }
+.hist-range-menu {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 101;
+  min-width: 160px;
+  background: var(--vscode-menu-background, var(--vscode-editor-background));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+  box-shadow: 0 6px 18px rgba(0,0,0,0.3);
+  padding: 3px;
+}
+.hist-range-opt {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 5px 8px;
+  background: transparent; border: none; width: 100%;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  font-size: 12px; cursor: pointer; text-align: left;
+}
+.hist-range-opt:hover {
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+  color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
+}
+.hist-range-opt.selected { font-weight: 600; }
+.hist-range-opt .ck { color: var(--vscode-textLink-foreground); }
+.hist-range-menu .menu-div { height: 1px; background: var(--vscode-panel-border); margin: 3px 0; }
+.hist-range-custom {
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 6px 8px;
+}
+.hist-range-custom label { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--vscode-descriptionForeground); }
+.hist-range-custom input {
+  background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 3px; padding: 2px 5px; font: inherit; font-size: 11px;
+}
+.hist-range-apply {
+  margin-top: 2px; padding: 5px 0; width: 100%;
+  background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+  border: none; border-radius: 4px; cursor: pointer; font: inherit; font-size: 11px; font-weight: 500;
+}
+.hist-range-apply:hover { background: var(--vscode-button-hoverBackground); }
+.theme-enhanced .hist-range-btn { background: var(--bg-1); color: var(--fg-1); }
+.theme-enhanced .hist-range-btn.modified { border-color: var(--accent-ring); color: var(--accent); }
+.theme-enhanced .hist-range-menu { background: var(--bg-2); border-color: var(--line-2); }
+.theme-enhanced .hist-range-opt { color: var(--fg-1); }
+.theme-enhanced .hist-range-opt:hover { background: var(--bg-3); }
+.theme-enhanced .hist-range-opt .ck { color: var(--accent); }
 .f-pill.commit-pill .check-glyph {
   width: 11px; height: 11px;
   border: 1px solid var(--vscode-panel-border);

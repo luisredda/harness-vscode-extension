@@ -362,6 +362,11 @@ const state = {
   sortMenuPos: { top: 0, left: 0 } as { top: number; left: number }, // menu position for fixed positioning
   filteredPipelineId: null as string | null, // when set, show only executions for this pipeline
   detailExecId:  null as string | null, // planExecutionId of execution being viewed in detail mode
+  loadingMore: false as boolean, // true while a "Load more" append fetch is in flight
+  // Executions time-range control (Phase 3; consumed server-side in Phase 4)
+  historyRange: 'LAST_30_DAYS' as 'LAST_24_HOURS' | 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'LAST_90_DAYS' | 'ALL' | 'CUSTOM',
+  historyRangeCustom: { from: null as number | null, to: null as number | null },
+  rangeMenuOpen: false as boolean,
 
   // Loading states
   loadingSteps:  new Set<string>(), // nodeIds currently loading logs
@@ -848,17 +853,23 @@ window.addEventListener('message', ({ data: msg }) => {
       scheduleRender(true);
       return;
 
-    case 'HISTORY_LIST':
-      console.log('[Webview] HISTORY_LIST received', { count: msg.executions?.length, total: msg.total });
+    case 'HISTORY_LIST': {
+      console.log('[Webview] HISTORY_LIST received', { count: msg.executions?.length, total: msg.total, page: msg.page });
       state.loadingExecution = false; // History data arrived
-      state.historyList = (msg.executions ?? []).map((item: any) => ({
+      state.loadingMore = false;
+      const incoming = (msg.executions ?? []).map((item: any) => ({
         ...item,
         isCurrentCommit: item.isCurrentCommit ?? false,
       }));
+      // Append on later pages (Load more); replace on a fresh page 0.
+      state.historyList = (msg.page && msg.page > 0)
+        ? [...state.historyList, ...incoming]
+        : incoming;
       state.historyTotal = msg.total ?? state.historyList.length;
       // Force immediate render for history list updates (user-triggered)
       scheduleRender(true);
       return; // Skip the scheduleRender at the end
+    }
 
     case 'HISTORY_DETAIL': {
       state.loadingExecution = false; // Execution detail arrived
@@ -1634,7 +1645,7 @@ function build(): string {
     parts.push(historyListView());
     parts.push(`</div>`);
     parts.push(`<div class="panel-footer">`);
-    parts.push(paginationBar());
+    parts.push(loadMoreFooter());
     parts.push(pinFooter());
     if (state.aiChatEnabled) {
       parts.push(aiFooter());
@@ -2408,6 +2419,15 @@ function pipelineRow(p: PipelineItem): string {
 }
 
 // ── History list view ──────────────────────────────────────────────────────
+const RANGE_LABEL: Record<string, string> = {
+  LAST_24_HOURS: 'Last 24 hours',
+  LAST_7_DAYS: 'Last 7 days',
+  LAST_30_DAYS: 'Last 30 days',
+  LAST_90_DAYS: 'Last 90 days',
+  ALL: 'All time',
+  CUSTOM: 'Custom range',
+};
+
 function historyListView(): string {
   const parts: string[] = [];
 
@@ -2532,6 +2552,28 @@ function historyListView(): string {
             ${sortOptHtml('status')}
           </div>` : ''}
       </div>
+      <div class="hist-range-wrap">
+        <button class="hist-range-btn${state.historyRange === 'LAST_30_DAYS' ? '' : ' modified'}${state.rangeMenuOpen ? ' open' : ''}"
+                data-action="toggleRangeMenu" title="Time range: ${RANGE_LABEL[state.historyRange]}"
+                aria-haspopup="menu" aria-expanded="${state.rangeMenuOpen ? 'true' : 'false'}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4" stroke-linecap="round"/></svg>
+          <span>${RANGE_LABEL[state.historyRange]}</span><span class="caret">▾</span>
+        </button>
+        ${state.rangeMenuOpen ? `
+          <div class="hist-range-scrim" data-action="closeRangeMenu"></div>
+          <div class="hist-range-menu" role="menu" aria-label="Time range">
+            ${(['LAST_24_HOURS','LAST_7_DAYS','LAST_30_DAYS','LAST_90_DAYS','ALL'] as const).map(r =>
+              `<button class="hist-range-opt${state.historyRange === r ? ' selected' : ''}" data-action="setRange" data-range="${r}" role="menuitemradio" aria-checked="${state.historyRange === r}">${RANGE_LABEL[r]}${state.historyRange === r ? '<span class="ck">✓</span>' : ''}</button>`).join('')}
+            <div class="menu-div" role="separator"></div>
+            <button class="hist-range-opt custom${state.historyRange === 'CUSTOM' ? ' selected' : ''}" data-action="setRange" data-range="CUSTOM">Custom range…${state.historyRange === 'CUSTOM' ? '<span class="ck">✓</span>' : ''}</button>
+            ${state.historyRange === 'CUSTOM' ? `
+              <div class="hist-range-custom">
+                <label>From <input type="date" data-action="rangeCustomFrom" value="${state.historyRangeCustom.from ? new Date(state.historyRangeCustom.from).toISOString().slice(0,10) : ''}"></label>
+                <label>To <input type="date" data-action="rangeCustomTo" value="${state.historyRangeCustom.to ? new Date(state.historyRangeCustom.to).toISOString().slice(0,10) : ''}"></label>
+                <button class="hist-range-apply" data-action="applyCustomRange">Apply</button>
+              </div>` : ''}
+          </div>` : ''}
+      </div>
       <span class="hist-count-chip"><span class="hc-n">${displayList.length}</span><span class="hc-sep">/</span><span class="hc-total">${totalCount}</span></span>
     </div>
   </div>`);
@@ -2565,26 +2607,27 @@ function historyListView(): string {
 }
 
 // ── History item row ───────────────────────────────────────────────────────
+// Title-case a raw status enum so we never dump an ALLCAPS value into the badge.
+const titleCase = (s: string) => s.charAt(0) + s.slice(1).toLowerCase();
+
 function historyItemRow(item: HistoryItem): string {
   const statusNorm = item.status.toUpperCase();
   const dotClass = statusNorm === 'SUCCESS' ? 'ok'
                  : statusNorm === 'FAILED' ? 'f'
+                 : statusNorm === 'IGNOREFAILED' || statusNorm === 'IGNORE_FAILED' ? 'ign'
                  : statusNorm === 'RUNNING' || statusNorm === 'ASYNC_WAITING' ? 'r'
                  : statusNorm === 'ABORTED' ? 'ab'
                  : 'ok';
 
-  const badgeClass = statusNorm === 'SUCCESS' ? 'ok'
-                   : statusNorm === 'FAILED' ? 'f'
-                   : statusNorm === 'RUNNING' || statusNorm === 'ASYNC_WAITING' ? 'r'
-                   : statusNorm === 'ABORTED' ? 'ab'
-                   : 'ok';
+  const badgeClass = dotClass; // same vocabulary
 
   const badgeText = statusNorm === 'RUNNING' || statusNorm === 'ASYNC_WAITING' ? '↻ Running'
                   : statusNorm === 'SUCCESS' ? 'Success'
                   : statusNorm === 'FAILED' ? 'Failed'
+                  : statusNorm === 'IGNOREFAILED' || statusNorm === 'IGNORE_FAILED' ? 'Ignore Failed'
                   : statusNorm === 'ABORTED' ? 'Aborted'
                   : statusNorm === 'APPROVALWAITING' ? 'Approval Waiting'
-                  : statusNorm;
+                  : titleCase(statusNorm);
 
   const duration = item.endTs ? dur(item.startTs, item.endTs) : `${Math.floor((Date.now() - item.startTs) / 1000)}s…`;
 
@@ -2593,12 +2636,12 @@ function historyItemRow(item: HistoryItem): string {
     ? `<span class="ei-cur-tag">● your commit</span>`
     : '';
 
-  // Module tags
+  // Module tags — folded onto the meta line; zero-count STO is suppressed.
   const modTags: string[] = [];
   const mi = item.moduleInfo as any;
   if (mi?.ci) modTags.push(`<span class="ei-tag et-ci">CI${statusNorm === 'RUNNING' ? ' ▶' : ''}</span>`);
   if (mi?.cd) modTags.push(`<span class="ei-tag et-cd">CD</span>`);
-  if (mi?.sto) modTags.push(`<span class="ei-tag et-sto">STO ×${(mi.sto as any).count ?? 0}</span>`);
+  if (mi?.sto && ((mi.sto as any).count ?? 0) > 0) modTags.push(`<span class="ei-tag et-sto">STO ${(mi.sto as any).count}</span>`);
   if (mi?.ti) {
     const tiData = mi.ti as any;
     const selected = tiData.selected ?? 0;
@@ -2612,7 +2655,7 @@ function historyItemRow(item: HistoryItem): string {
   const author = item.triggerInfo?.triggeredBy?.identifier || item.triggerInfo?.triggeredBy?.email || '';
   const timeAgo = ago(item.startTs);
 
-  return `<div class="exec-item${currentClass}" data-action="viewExecution" data-exec-id="${esc(item.planExecutionId)}">
+  return `<div class="exec-item ei-row${currentClass}" data-action="viewExecution" data-exec-id="${esc(item.planExecutionId)}">
     <div class="ei-dot ${dotClass}"></div>
     <div class="ei-body">
       <div class="ei-top">
@@ -2623,74 +2666,28 @@ function historyItemRow(item: HistoryItem): string {
       </div>
       <div class="ei-meta">
         ${sha ? `<span class="ei-sha">${sha}</span>` : ''}
-        ${branch ? `<span class="ei-branch">${branch}</span>` : ''}
-        ${author ? `<span>${esc(author)}</span>` : ''}
-        <span>${timeAgo}</span>
+        ${branch ? `<span class="ei-branch" title="${esc(item.gitBranch)}">${branch}</span>` : ''}
+        ${author ? `<span class="ei-sep">·</span><span class="ei-author">${esc(author)}</span>` : ''}
+        <span class="ei-sep">·</span><span class="ei-time">${timeAgo}</span>
+        ${modTags.length ? `<span class="ei-tags">${modTags.join('')}</span>` : ''}
       </div>
-      ${modTags.length ? `<div class="ei-tags">${modTags.join('')}</div>` : ''}
     </div>
   </div>`;
 }
 
 // ── Pagination bar ─────────────────────────────────────────────────────────
-function paginationBar(): string {
-  const totalPages = Math.ceil(state.historyTotal / state.historyPageSize);
-
-  // Don't render pagination if only one page
-  if (totalPages <= 1) {
-    return '';
+// "Load more" footer — appends the next page instead of a numbered pager,
+// which suits a narrow panel and (with Phase 4) real server-side paging.
+function loadMoreFooter(): string {
+  const loaded = state.historyList.length;
+  const total  = state.historyTotal || loaded;
+  if (loaded >= total) return '';
+  const remaining = total - loaded;
+  const next = Math.min(state.historyPageSize, remaining);
+  if (state.loadingMore) {
+    return `<div class="load-more"><button class="load-more-btn" disabled><span class="spinner">⟳</span> Loading…</button></div>`;
   }
-
-  const currentPage = state.historyPage;
-  const hasPrev = currentPage > 0;
-  const hasNext = currentPage < totalPages - 1;
-
-  const pages: string[] = [];
-
-  // Logic: Show more page numbers to make navigation clearer
-  // - Show all pages if 10 or fewer
-  // - Otherwise: show first 7 pages, ellipsis, last page
-  // - Also show current page neighborhood if beyond first 7
-
-  if (totalPages <= 10) {
-    // Show all pages if 10 or fewer
-    for (let i = 0; i < totalPages; i++) {
-      pages.push(`<span class="pg-num${currentPage === i ? ' on' : ''}" data-action="goToPage" data-page="${i}">${i + 1}</span>`);
-    }
-  } else {
-    // Show first 7 pages
-    const initialPageCount = Math.min(7, totalPages);
-    for (let i = 0; i < initialPageCount; i++) {
-      pages.push(`<span class="pg-num${currentPage === i ? ' on' : ''}" data-action="goToPage" data-page="${i}">${i + 1}</span>`);
-    }
-
-    // Show current page neighborhood if beyond first 7 pages
-    if (currentPage >= 7 && currentPage < totalPages - 1) {
-      pages.push(`<span style="font-size:10px;color:#ccc">…</span>`);
-
-      const start = Math.max(7, currentPage - 1);
-      const end = Math.min(totalPages - 1, currentPage + 2);
-
-      for (let i = start; i < end; i++) {
-        pages.push(`<span class="pg-num${currentPage === i ? ' on' : ''}" data-action="goToPage" data-page="${i}">${i + 1}</span>`);
-      }
-    }
-
-    // Show ellipsis before last page if needed
-    if (currentPage < totalPages - 2 && totalPages > 8) {
-      pages.push(`<span style="font-size:10px;color:#ccc">…</span>`);
-    }
-
-    // Always show last page
-    pages.push(`<span class="pg-num${currentPage === totalPages - 1 ? ' on' : ''}" data-action="goToPage" data-page="${totalPages - 1}">${totalPages}</span>`);
-  }
-
-  return `<div class="pag">
-    <button class="pg-btn" data-action="prevPage"${hasPrev ? '' : ' disabled'}>←</button>
-    ${pages.join('')}
-    <button class="pg-btn" data-action="nextPage"${hasNext ? '' : ' disabled'}>→</button>
-    <span class="pg-info">Page ${currentPage + 1} / ${totalPages}</span>
-  </div>`;
+  return `<div class="load-more"><button class="load-more-btn" data-action="loadMore">Load ${next} more</button></div>`;
 }
 
 function pipelinesPaginationBar(totalPipelines: number): string {
@@ -4327,6 +4324,49 @@ function bind(): void {
     });
   });
 
+  // Time-range control
+  q('[data-action="toggleRangeMenu"]', () => { state.rangeMenuOpen = !state.rangeMenuOpen; scheduleRender(true); });
+  q('[data-action="closeRangeMenu"]', () => { state.rangeMenuOpen = false; scheduleRender(true); });
+  document.querySelectorAll<HTMLElement>('[data-action="setRange"]').forEach(el => {
+    el.addEventListener('click', () => {
+      const r = el.dataset['range'] as typeof state.historyRange;
+      if (r && r !== 'CUSTOM') {
+        state.historyRange = r;
+        state.rangeMenuOpen = false;
+        state.historyPage = 0;
+        state.loadingExecution = true;
+        postFetchHistory();
+        scheduleRender(true);
+      } else if (r === 'CUSTOM') {
+        // Reveal the date inputs; don't refetch until Apply.
+        state.historyRange = 'CUSTOM';
+        scheduleRender(true);
+      }
+    });
+  });
+  document.querySelectorAll<HTMLElement>('[data-action="rangeCustomFrom"]').forEach(el => {
+    el.addEventListener('change', () => {
+      const v = (el as HTMLInputElement).value;
+      state.historyRangeCustom.from = v ? new Date(v + 'T00:00:00').getTime() : null;
+    });
+  });
+  document.querySelectorAll<HTMLElement>('[data-action="rangeCustomTo"]').forEach(el => {
+    el.addEventListener('change', () => {
+      const v = (el as HTMLInputElement).value;
+      state.historyRangeCustom.to = v ? new Date(v + 'T23:59:59').getTime() : null;
+    });
+  });
+  q('[data-action="applyCustomRange"]', () => {
+    if (state.historyRangeCustom.from && state.historyRangeCustom.to) {
+      state.historyRange = 'CUSTOM';
+      state.rangeMenuOpen = false;
+      state.historyPage = 0;
+      state.loadingExecution = true;
+      postFetchHistory();
+      scheduleRender(true);
+    }
+  });
+
   // History filters
   q('[data-action="filterAll"]', () => {
     state.historyFilter = 'all';
@@ -4372,33 +4412,15 @@ function bind(): void {
     scheduleRender(true); // User action
   });
 
-  // Pagination
-  q('[data-action="prevPage"]', () => {
-    if (state.historyPage > 0) {
-      state.historyPage--;
-      state.loadingExecution = true; // Show loading state while fetching
-      vscode.postMessage({ type: 'fetchHistory', page: state.historyPage, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId });
-      scheduleRender(true); // User action
-    }
-  });
-  q('[data-action="nextPage"]', () => {
-    const totalPages = Math.ceil(state.historyTotal / state.historyPageSize);
+  // Load more — append the next page (replaces the old numbered pager)
+  q('[data-action="loadMore"]', () => {
+    const totalPages = Math.ceil((state.historyTotal || 1) / state.historyPageSize);
     if (state.historyPage < totalPages - 1) {
       state.historyPage++;
-      state.loadingExecution = true; // Show loading state while fetching
-      vscode.postMessage({ type: 'fetchHistory', page: state.historyPage, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId });
+      state.loadingMore = true;
+      postFetchHistory();
       scheduleRender(true); // User action
     }
-  });
-
-  document.querySelectorAll<HTMLElement>('[data-action="goToPage"]').forEach(el => {
-    el.addEventListener('click', () => {
-      const page = parseInt(el.dataset['page'] ?? '0', 10);
-      state.historyPage = page;
-      state.loadingExecution = true; // Show loading state while fetching
-      vscode.postMessage({ type: 'fetchHistory', page, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId });
-      scheduleRender(true); // User action
-    });
   });
 
   // Pipelines pagination
@@ -4650,9 +4672,10 @@ function bind(): void {
 
   // Keydown handler for Enter key
   root.addEventListener('keydown', (e) => {
-    // Close sort menu on Escape
-    if (e.key === 'Escape' && state.sortMenuOpen) {
+    // Close sort / range menus on Escape
+    if (e.key === 'Escape' && (state.sortMenuOpen || state.rangeMenuOpen)) {
       state.sortMenuOpen = false;
+      state.rangeMenuOpen = false;
       scheduleRender(true);
       return;
     }
@@ -4825,6 +4848,22 @@ export HARNESS_ACCOUNT_ID=xxxxx`;
 
 function q(sel: string, handler: () => void): void {
   document.querySelectorAll(sel).forEach(el => el.addEventListener('click', handler));
+}
+
+// Single source of truth for the executions fetch params, so every call site
+// (load-more, filters, range) sends the same shape. Range/custom are consumed
+// by the host once Phase 4 lands; harmless before then.
+function postFetchHistory(): void {
+  vscode.postMessage({
+    type: 'fetchHistory',
+    page: state.historyPage,
+    filter: state.historyFilter,
+    pageSize: state.historyPageSize,
+    pipelineId: state.filteredPipelineId,
+    range: state.historyRange,
+    customFrom: state.historyRangeCustom.from,
+    customTo: state.historyRangeCustom.to,
+  });
 }
 
 function sendAIMessage(): void {
