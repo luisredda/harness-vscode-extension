@@ -363,9 +363,9 @@ const state = {
   filteredPipelineId: null as string | null, // when set, show only executions for this pipeline
   detailExecId:  null as string | null, // planExecutionId of execution being viewed in detail mode
   loadingMore: false as boolean, // true while a "Load more" append fetch is in flight
-  // Executions time-range control (Phase 3; consumed server-side in Phase 4)
-  historyRange: 'LAST_30_DAYS' as 'LAST_24_HOURS' | 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'LAST_90_DAYS' | 'ALL' | 'CUSTOM',
-  historyRangeCustom: { from: null as number | null, to: null as number | null },
+  // Executions time-range control. Values are the exact enums the summary API
+  // accepts (verified); 'ALL' means "omit the time filter" server-side.
+  historyRange: 'LAST_30_DAYS' as 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'LAST_3_MONTHS' | 'LAST_12_MONTHS' | 'ALL',
   rangeMenuOpen: false as boolean,
 
   // Loading states
@@ -2420,12 +2420,11 @@ function pipelineRow(p: PipelineItem): string {
 
 // ── History list view ──────────────────────────────────────────────────────
 const RANGE_LABEL: Record<string, string> = {
-  LAST_24_HOURS: 'Last 24 hours',
   LAST_7_DAYS: 'Last 7 days',
   LAST_30_DAYS: 'Last 30 days',
-  LAST_90_DAYS: 'Last 90 days',
+  LAST_3_MONTHS: 'Last 3 months',
+  LAST_12_MONTHS: 'Last 12 months',
   ALL: 'All time',
-  CUSTOM: 'Custom range',
 };
 
 function historyListView(): string {
@@ -2562,16 +2561,8 @@ function historyListView(): string {
         ${state.rangeMenuOpen ? `
           <div class="hist-range-scrim" data-action="closeRangeMenu"></div>
           <div class="hist-range-menu" role="menu" aria-label="Time range">
-            ${(['LAST_24_HOURS','LAST_7_DAYS','LAST_30_DAYS','LAST_90_DAYS','ALL'] as const).map(r =>
+            ${(['LAST_7_DAYS','LAST_30_DAYS','LAST_3_MONTHS','LAST_12_MONTHS','ALL'] as const).map(r =>
               `<button class="hist-range-opt${state.historyRange === r ? ' selected' : ''}" data-action="setRange" data-range="${r}" role="menuitemradio" aria-checked="${state.historyRange === r}">${RANGE_LABEL[r]}${state.historyRange === r ? '<span class="ck">✓</span>' : ''}</button>`).join('')}
-            <div class="menu-div" role="separator"></div>
-            <button class="hist-range-opt custom${state.historyRange === 'CUSTOM' ? ' selected' : ''}" data-action="setRange" data-range="CUSTOM">Custom range…${state.historyRange === 'CUSTOM' ? '<span class="ck">✓</span>' : ''}</button>
-            ${state.historyRange === 'CUSTOM' ? `
-              <div class="hist-range-custom">
-                <label>From <input type="date" data-action="rangeCustomFrom" value="${state.historyRangeCustom.from ? new Date(state.historyRangeCustom.from).toISOString().slice(0,10) : ''}"></label>
-                <label>To <input type="date" data-action="rangeCustomTo" value="${state.historyRangeCustom.to ? new Date(state.historyRangeCustom.to).toISOString().slice(0,10) : ''}"></label>
-                <button class="hist-range-apply" data-action="applyCustomRange">Apply</button>
-              </div>` : ''}
           </div>` : ''}
       </div>
       <span class="hist-count-chip"><span class="hc-n">${displayList.length}</span><span class="hc-sep">/</span><span class="hc-total">${totalCount}</span></span>
@@ -4330,72 +4321,29 @@ function bind(): void {
   document.querySelectorAll<HTMLElement>('[data-action="setRange"]').forEach(el => {
     el.addEventListener('click', () => {
       const r = el.dataset['range'] as typeof state.historyRange;
-      if (r && r !== 'CUSTOM') {
+      if (r) {
         state.historyRange = r;
         state.rangeMenuOpen = false;
         state.historyPage = 0;
         state.loadingExecution = true;
         postFetchHistory();
         scheduleRender(true);
-      } else if (r === 'CUSTOM') {
-        // Reveal the date inputs; don't refetch until Apply.
-        state.historyRange = 'CUSTOM';
-        scheduleRender(true);
       }
     });
   });
-  document.querySelectorAll<HTMLElement>('[data-action="rangeCustomFrom"]').forEach(el => {
-    el.addEventListener('change', () => {
-      const v = (el as HTMLInputElement).value;
-      state.historyRangeCustom.from = v ? new Date(v + 'T00:00:00').getTime() : null;
-    });
-  });
-  document.querySelectorAll<HTMLElement>('[data-action="rangeCustomTo"]').forEach(el => {
-    el.addEventListener('change', () => {
-      const v = (el as HTMLInputElement).value;
-      state.historyRangeCustom.to = v ? new Date(v + 'T23:59:59').getTime() : null;
-    });
-  });
-  q('[data-action="applyCustomRange"]', () => {
-    if (state.historyRangeCustom.from && state.historyRangeCustom.to) {
-      state.historyRange = 'CUSTOM';
-      state.rangeMenuOpen = false;
-      state.historyPage = 0;
-      state.loadingExecution = true;
-      postFetchHistory();
-      scheduleRender(true);
-    }
-  });
 
-  // History filters
-  q('[data-action="filterAll"]', () => {
-    state.historyFilter = 'all';
+  // History filters — reset to page 0 and refetch with the current range.
+  const applyFilter = (f: typeof state.historyFilter) => {
+    state.historyFilter = f;
     state.historyPage = 0;
-    state.loadingExecution = true; // Show loading state while fetching
-    vscode.postMessage({ type: 'fetchHistory', page: 0, filter: 'all', pageSize: state.historyPageSize });
-    scheduleRender(true); // User action
-  });
-  q('[data-action="filterFailed"]', () => {
-    state.historyFilter = 'failed';
-    state.historyPage = 0;
-    state.loadingExecution = true; // Show loading state while fetching
-    vscode.postMessage({ type: 'fetchHistory', page: 0, filter: 'failed', pageSize: state.historyPageSize });
-    scheduleRender(true); // User action
-  });
-  q('[data-action="filterSuccess"]', () => {
-    state.historyFilter = 'success';
-    state.historyPage = 0;
-    state.loadingExecution = true; // Show loading state while fetching
-    vscode.postMessage({ type: 'fetchHistory', page: 0, filter: 'success', pageSize: state.historyPageSize });
-    scheduleRender(true); // User action
-  });
-  q('[data-action="filterWaiting"]', () => {
-    state.historyFilter = 'waiting';
-    state.historyPage = 0;
-    state.loadingExecution = true; // Show loading state while fetching
-    vscode.postMessage({ type: 'fetchHistory', page: 0, filter: 'waiting', pageSize: state.historyPageSize });
-    scheduleRender(true); // User action
-  });
+    state.loadingExecution = true;
+    postFetchHistory();
+    scheduleRender(true);
+  };
+  q('[data-action="filterAll"]',     () => applyFilter('all'));
+  q('[data-action="filterFailed"]',  () => applyFilter('failed'));
+  q('[data-action="filterSuccess"]', () => applyFilter('success'));
+  q('[data-action="filterWaiting"]', () => applyFilter('waiting'));
 
   // Current commit filter checkbox
   q('[data-action="toggleCurrentCommitFilter"]', () => {
@@ -4861,8 +4809,6 @@ function postFetchHistory(): void {
     pageSize: state.historyPageSize,
     pipelineId: state.filteredPipelineId,
     range: state.historyRange,
-    customFrom: state.historyRangeCustom.from,
-    customTo: state.historyRangeCustom.to,
   });
 }
 

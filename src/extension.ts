@@ -209,7 +209,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Route webview messages back to VS Code commands
   bridge.onMessage(async (msg: unknown) => {
-    const m = msg as { type: string; command?: string; url?: string; approvalInstanceId?: string; action?: string; comments?: string; page?: number; filter?: string; planExecutionId?: string; pipelineIdentifier?: string; pipelineId?: string; pinnedPipelines?: string[]; interruptType?: string };
+    const m = msg as { type: string; command?: string; url?: string; approvalInstanceId?: string; action?: string; comments?: string; page?: number; filter?: string; pageSize?: number; range?: string; planExecutionId?: string; pipelineIdentifier?: string; pipelineId?: string; pinnedPipelines?: string[]; interruptType?: string };
 
     logger.debug('Extension', 'Bridge received message:', m.type);
 
@@ -306,7 +306,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Silent return - empty state in webview will handle unconfigured state
         return;
       }
-      await fetchExecutionHistory(currentConfig, bridge, m.page ?? 0, m.filter ?? 'all', m.pageSize ?? 15, m.pipelineId);
+      await fetchExecutionHistory(currentConfig, bridge, m.page ?? 0, m.filter ?? 'all', m.pageSize ?? 15, m.pipelineId, m.range ?? 'LAST_30_DAYS');
     } else if (m.type === 'fetchExecutionDetail') {
       logger.debug('Extension', 'fetchExecutionDetail message received', { planExecutionId: m.planExecutionId, hasConfig: !!currentConfig });
       if (!currentConfig || !m.planExecutionId) {
@@ -1152,19 +1152,32 @@ async function fetchExecutionHistory(
   page: number,
   filter: string,
   pageSize: number,
-  pipelineId?: string
+  pipelineId?: string,
+  range: string = 'LAST_30_DAYS'
 ): Promise<void> {
-  logger.debug('Extension', 'fetchExecutionHistory called', { page, filter, pageSize, pipelineId, org: config.orgIdentifier, project: config.projectIdentifier });
+  logger.debug('Extension', 'fetchExecutionHistory called', { page, filter, pageSize, pipelineId, range, org: config.orgIdentifier, project: config.projectIdentifier });
   try {
     const client = new HarnessClient(config);
 
-    // Fetch ALL executions (up to 100 from API) - we'll filter client-side
-    const requestBody: any = {
-      filterType: 'PipelineExecution',
-      timeRange: { timeRangeFilterType: 'LAST_7_DAYS' },
-    };
+    // Build the time window. Values verified against the account's
+    // execution-summary endpoint: only these named ranges are accepted; there
+    // is no CUSTOM/24h/90d. 'ALL' means omit the timeRange filter entirely.
+    const NAMED_RANGES = new Set(['LAST_7_DAYS', 'LAST_30_DAYS', 'LAST_3_MONTHS', 'LAST_12_MONTHS']);
+    const requestBody: any = { filterType: 'PipelineExecution' };
+    if (range !== 'ALL') {
+      requestBody.timeRange = { timeRangeFilterType: NAMED_RANGES.has(range) ? range : 'LAST_30_DAYS' };
+    }
 
-    logger.debug('Extension', 'fetchExecutionHistory request', { page, filter });
+    // Push status + pipeline filters server-side so counts and paging are real.
+    const STATUS_MAP: Record<string, string[]> = {
+      failed:  ['Failed', 'Aborted', 'Expired', 'IgnoreFailed'],
+      success: ['Success'],
+      waiting: ['ApprovalWaiting', 'InterventionWaiting', 'ResourceWaiting'],
+    };
+    if (STATUS_MAP[filter]) { requestBody.status = STATUS_MAP[filter]; }
+    if (pipelineId) { requestBody.pipelineIdentifiers = [pipelineId]; }
+
+    logger.debug('Extension', 'fetchExecutionHistory request', { page, filter, range, body: requestBody });
 
     // Fetch a larger page size to have enough data for client-side filtering
     const response = await client.post<{
@@ -1190,57 +1203,23 @@ async function fetchExecutionHistory(
         accountIdentifier: config.accountIdentifier,
         orgIdentifier: config.orgIdentifier,
         projectIdentifier: config.projectIdentifier,
-        page: '0',
-        size: '100', // Fetch more so we have data to filter
+        page: String(page),        // real server-side page
+        size: String(pageSize),    // real page size
         sort: 'startTs,DESC',
       }
     );
 
-    let executions = response.data?.content ?? [];
+    // Status + pipeline filters and pagination are now server-side, so the
+    // returned content is exactly the requested page and totalElements is real.
+    const paginatedExecutions = response.data?.content ?? [];
+    const total = response.data?.totalElements ?? paginatedExecutions.length;
 
     logger.debug('Extension', 'Received executions from API', {
-      count: executions.length,
+      count: paginatedExecutions.length,
+      total,
+      page,
       filter,
-      statuses: executions.map(e => e.status).slice(0, 5)
     });
-
-    // Client-side filtering by status
-    if (filter === 'failed') {
-      executions = executions.filter(ex => {
-        const status = ex.status.toUpperCase();
-        return status === 'FAILED' || status === 'FAILURE';
-      });
-    } else if (filter === 'success' || filter === 'passed') {
-      executions = executions.filter(ex => {
-        const status = ex.status.toUpperCase();
-        return status === 'SUCCESS' || status === 'SUCCEEDED';
-      });
-    } else if (filter === 'waiting') {
-      executions = executions.filter(ex => {
-        const status = ex.status.toUpperCase();
-        return status === 'APPROVALWAITING' || status === 'APPROVAL_WAITING';
-      });
-    }
-
-    logger.debug('Extension', 'After client-side status filter', {
-      count: executions.length,
-      filter
-    });
-
-    // Filter by pipeline if specified
-    if (pipelineId) {
-      executions = executions.filter(ex => ex.pipelineIdentifier === pipelineId);
-      logger.debug('Extension', 'After pipeline filter', {
-        count: executions.length,
-        pipelineId
-      });
-    }
-
-    // Client-side pagination
-    const total = executions.length;
-    const start = page * pageSize;
-    const end = start + pageSize;
-    const paginatedExecutions = executions.slice(start, end);
 
     // Get current git context to mark current commit
     const { getGitContext, extractTriggerShas, shaMatch } = await import('./git/gitContext');

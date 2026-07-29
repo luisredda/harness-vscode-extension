@@ -1572,31 +1572,31 @@ body {
   white-space: nowrap;
   color: var(--vscode-foreground);
 }
+/* Soft, tinted status badges (tint background + colored text) — calm, uniform. */
 .ei-badge {
   font-size: 9px;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 2px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 1px 6px;
+  border-radius: 4px;
   text-transform: uppercase;
   flex-shrink: 0;
 }
 .ei-badge.ok {
-  background: var(--vscode-charts-green, #388a34);
-  color: var(--vscode-editor-background);
-  opacity: 0.9;
+  background: color-mix(in srgb, var(--vscode-charts-green, #3fb950) 16%, transparent);
+  color: var(--vscode-charts-green, #3fb950);
 }
 .ei-badge.f {
-  background: var(--vscode-errorForeground, #f44747);
-  color: var(--vscode-editor-background);
+  background: color-mix(in srgb, var(--vscode-errorForeground, #f85149) 16%, transparent);
+  color: var(--vscode-errorForeground, #f85149);
 }
 .ei-badge.r {
-  background: var(--vscode-charts-blue, #0078d4);
-  color: var(--vscode-editor-background);
+  background: color-mix(in srgb, var(--vscode-charts-blue, #4a9eff) 16%, transparent);
+  color: var(--vscode-charts-blue, #4a9eff);
 }
 .ei-badge.ab {
-  background: var(--vscode-descriptionForeground);
-  color: var(--vscode-editor-background);
-  opacity: 0.5;
+  background: color-mix(in srgb, var(--vscode-descriptionForeground) 14%, transparent);
+  color: var(--vscode-descriptionForeground);
 }
 .ei-dur {
   font-size: 10px;
@@ -1682,9 +1682,13 @@ body {
 .ei-sep { opacity: .5; }
 .ei-row .ei-tags { display: inline-flex; gap: 4px; margin-left: auto; flex-shrink: 0; flex-wrap: nowrap; }
 
-/* Ignore-failed = warning, distinct from a hard failure */
-.ei-dot.ign   { background: var(--vscode-charts-yellow, #e2b714); }
-.ei-badge.ign { background: var(--vscode-charts-yellow, #e2b714); color: var(--vscode-editor-background); }
+/* Ignore-failed = failure-suppressed: amber warning, distinct from success
+   green and hard-failure red. */
+.ei-dot.ign   { background: var(--vscode-charts-yellow, #e2b714); opacity: 1; }
+.ei-badge.ign {
+  background: color-mix(in srgb, var(--vscode-charts-yellow, #e2b714) 16%, transparent);
+  color: var(--vscode-charts-yellow, #e2b714);
+}
 
 .empty-history {
   padding: 40px 20px;
@@ -3296,39 +3300,34 @@ a[data-action="openUrl"] { cursor: pointer; }
   flex-shrink: 0;
   margin-top: 4px;
 }
-.theme-enhanced-dark , .theme-enhanced-light .ei-dot.ok      { background: var(--success); }
-.theme-enhanced-dark , .theme-enhanced-light .ei-dot.failed  { background: var(--error); }
-.theme-enhanced-dark , .theme-enhanced-light .ei-dot.running { background: var(--primary); animation: pulse 1.4s infinite; }
-.theme-enhanced-dark , .theme-enhanced-light .ei-dot.aborted { background: var(--outline); }
+/* (dot colors defined below with the correct .ok/.f/.r/.ab/.ign classes) */
 
-.theme-enhanced-dark , .theme-enhanced-light .ei-name { font-size: 11px; font-weight: 600; color: var(--fg-3); }
+.theme-enhanced-dark .ei-name, .theme-enhanced-light .ei-name { font-size: 11px; font-weight: 600; color: var(--fg-0); }
 
 .theme-enhanced-dark .ei-badge, .theme-enhanced-light .ei-badge {
-  font-size: 8px;
-  font-weight: 700;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
-  padding: 1px 5px;
-  border-radius: 3px;
+  padding: 1px 6px;
+  border-radius: 4px;
 }
-.theme-enhanced-dark , .theme-enhanced-light .ei-badge.ok      { background: var(--success-bg); color: var(--success); }
-.theme-enhanced-dark , .theme-enhanced-light .ei-badge.failed  { background: var(--error-bg);   color: var(--error); }
-.theme-enhanced-dark , .theme-enhanced-light .ei-badge.running { background: var(--running-bg); color: var(--running); }
+.theme-enhanced-dark .ei-meta, .theme-enhanced-light .ei-meta { font-size: 10px; color: var(--outline); font-family: var(--font-mono); }
+.theme-enhanced-dark .ei-sha, .theme-enhanced-light .ei-sha  { color: var(--primary); }
+.theme-enhanced-dark .ei-branch, .theme-enhanced-light .ei-branch { color: var(--secondary); opacity: .8; font-family: var(--font-sans); }
 
-.theme-enhanced-dark , .theme-enhanced-light .ei-meta { font-size: 10px; color: var(--outline); font-family: var(--font-mono); }
-.theme-enhanced-dark , .theme-enhanced-light .ei-sha  { color: var(--primary); }
-.theme-enhanced-dark , .theme-enhanced-light .ei-branch { color: var(--secondary); opacity: .8; font-family: var(--font-sans); }
-
-/* Correct dot/badge classes to match the JS (.f/.r/.ab/.ign), and add
-   ignore-failed as a warning. The base-theme block already uses the right
-   classes; these mirror it for the enhanced themes. */
+/* Dot + soft-tinted badge classes matching the JS (.ok/.f/.r/.ab/.ign).
+   Ignore-failed = calm teal (passed-with-warning), distinct from success/fail. */
+.theme-enhanced-dark .ei-dot.ok, .theme-enhanced-light .ei-dot.ok   { background: var(--success); }
 .theme-enhanced-dark .ei-dot.f, .theme-enhanced-light .ei-dot.f   { background: var(--error); }
 .theme-enhanced-dark .ei-dot.r, .theme-enhanced-light .ei-dot.r   { background: var(--primary); animation: pulse 1.4s infinite; }
 .theme-enhanced-dark .ei-dot.ab, .theme-enhanced-light .ei-dot.ab { background: var(--outline); }
-.theme-enhanced-dark .ei-dot.ign, .theme-enhanced-light .ei-dot.ign { background: var(--warn); }
+.theme-enhanced-dark .ei-dot.ign, .theme-enhanced-light .ei-dot.ign { background: #e2b714; opacity: 1; }
+.theme-enhanced-dark .ei-badge.ok, .theme-enhanced-light .ei-badge.ok   { background: var(--success-bg); color: var(--success); }
 .theme-enhanced-dark .ei-badge.f, .theme-enhanced-light .ei-badge.f     { background: var(--error-bg); color: var(--error); }
 .theme-enhanced-dark .ei-badge.r, .theme-enhanced-light .ei-badge.r     { background: var(--running-bg); color: var(--running); }
 .theme-enhanced-dark .ei-badge.ab, .theme-enhanced-light .ei-badge.ab   { background: var(--bg-3); color: var(--outline); }
-.theme-enhanced-dark .ei-badge.ign, .theme-enhanced-light .ei-badge.ign { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+.theme-enhanced-dark .ei-badge.ign, .theme-enhanced-light .ei-badge.ign { background: color-mix(in srgb, #e2b714 18%, transparent); color: #e2b714; }
 .theme-enhanced-dark .ei-meta, .theme-enhanced-light .ei-meta { flex-wrap: nowrap; }
 
 .theme-enhanced-dark .ei-cur-tag, .theme-enhanced-light .ei-cur-tag {
@@ -4326,22 +4325,6 @@ a[data-action="openUrl"] { cursor: pointer; }
 .hist-range-opt.selected { font-weight: 600; }
 .hist-range-opt .ck { color: var(--vscode-textLink-foreground); }
 .hist-range-menu .menu-div { height: 1px; background: var(--vscode-panel-border); margin: 3px 0; }
-.hist-range-custom {
-  display: flex; flex-direction: column; gap: 5px;
-  padding: 6px 8px;
-}
-.hist-range-custom label { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--vscode-descriptionForeground); }
-.hist-range-custom input {
-  background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
-  border-radius: 3px; padding: 2px 5px; font: inherit; font-size: 11px;
-}
-.hist-range-apply {
-  margin-top: 2px; padding: 5px 0; width: 100%;
-  background: var(--vscode-button-background); color: var(--vscode-button-foreground);
-  border: none; border-radius: 4px; cursor: pointer; font: inherit; font-size: 11px; font-weight: 500;
-}
-.hist-range-apply:hover { background: var(--vscode-button-hoverBackground); }
 .theme-enhanced .hist-range-btn { background: var(--bg-1); color: var(--fg-1); }
 .theme-enhanced .hist-range-btn.modified { border-color: var(--accent-ring); color: var(--accent); }
 .theme-enhanced .hist-range-menu { background: var(--bg-2); border-color: var(--line-2); }
