@@ -367,6 +367,7 @@ const state = {
   // accepts (verified); 'ALL' means "omit the time filter" server-side.
   historyRange: 'LAST_30_DAYS' as 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'LAST_3_MONTHS' | 'LAST_12_MONTHS' | 'ALL',
   rangeMenuOpen: false as boolean,
+  rangeMenuPos: { top: 0, left: 0 } as { top: number; left: number }, // fixed-position coords (escape scroll clip)
 
   // Loading states
   loadingSteps:  new Set<string>(), // nodeIds currently loading logs
@@ -2560,7 +2561,7 @@ function historyListView(): string {
         </button>
         ${state.rangeMenuOpen ? `
           <div class="hist-range-scrim" data-action="closeRangeMenu"></div>
-          <div class="hist-range-menu" role="menu" aria-label="Time range">
+          <div class="hist-range-menu" role="menu" aria-label="Time range" style="top: ${state.rangeMenuPos.top}px; left: ${state.rangeMenuPos.left}px;">
             ${(['LAST_7_DAYS','LAST_30_DAYS','LAST_3_MONTHS','LAST_12_MONTHS','ALL'] as const).map(r =>
               `<button class="hist-range-opt${state.historyRange === r ? ' selected' : ''}" data-action="setRange" data-range="${r}" role="menuitemradio" aria-checked="${state.historyRange === r}">${RANGE_LABEL[r]}${state.historyRange === r ? '<span class="ck">✓</span>' : ''}</button>`).join('')}
           </div>` : ''}
@@ -2600,6 +2601,9 @@ function historyListView(): string {
 // ── History item row ───────────────────────────────────────────────────────
 // Title-case a raw status enum so we never dump an ALLCAPS value into the badge.
 const titleCase = (s: string) => s.charAt(0) + s.slice(1).toLowerCase();
+
+// Tiny muted clock glyph for the duration in the meta line.
+const clockIcon = () => '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 function historyItemRow(item: HistoryItem): string {
   const statusNorm = item.status.toUpperCase();
@@ -2653,14 +2657,14 @@ function historyItemRow(item: HistoryItem): string {
         <span class="ei-name">${esc(item.name)}</span>
         ${currentTag}
         <span class="ei-badge ${badgeClass}">${badgeText}</span>
-        <span class="ei-dur">${duration}</span>
       </div>
       <div class="ei-meta">
         ${sha ? `<span class="ei-sha">${sha}</span>` : ''}
         ${branch ? `<span class="ei-branch" title="${esc(item.gitBranch)}">${branch}</span>` : ''}
         ${author ? `<span class="ei-sep">·</span><span class="ei-author">${esc(author)}</span>` : ''}
         <span class="ei-sep">·</span><span class="ei-time">${timeAgo}</span>
-        ${modTags.length ? `<span class="ei-tags">${modTags.join('')}</span>` : ''}
+        ${duration ? `<span class="ei-sep">·</span><span class="ei-dur">${clockIcon()}${duration}</span>` : ''}
+        ${modTags.join('')}
       </div>
     </div>
   </div>`;
@@ -4315,8 +4319,23 @@ function bind(): void {
     });
   });
 
-  // Time-range control
-  q('[data-action="toggleRangeMenu"]', () => { state.rangeMenuOpen = !state.rangeMenuOpen; scheduleRender(true); });
+  // Time-range control. The menu is position:fixed (computed here) so it
+  // escapes the scrollable list container instead of being clipped by it.
+  q('[data-action="toggleRangeMenu"]', () => {
+    if (!state.rangeMenuOpen) {
+      const btn = document.querySelector('[data-action="toggleRangeMenu"]') as HTMLElement;
+      if (btn) {
+        const rect = btn.getBoundingClientRect();
+        const menuWidth = 160;
+        state.rangeMenuPos = {
+          top: rect.bottom + 4,
+          left: Math.max(8, rect.right - menuWidth), // align right edges, keep on-screen
+        };
+      }
+    }
+    state.rangeMenuOpen = !state.rangeMenuOpen;
+    scheduleRender(true);
+  });
   q('[data-action="closeRangeMenu"]', () => { state.rangeMenuOpen = false; scheduleRender(true); });
   document.querySelectorAll<HTMLElement>('[data-action="setRange"]').forEach(el => {
     el.addEventListener('click', () => {

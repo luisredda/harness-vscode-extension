@@ -1486,8 +1486,9 @@ body {
   flex-shrink: 0;
   flex-wrap: nowrap;
   overflow-x: auto;
+  overflow-y: visible;      /* let popovers escape the toolbar vertically */
   position: relative;
-  z-index: 10;
+  z-index: 40;              /* toolbar (and its popovers) above the list */
 }
 .f-pill {
   font-size: 10px;
@@ -1519,7 +1520,10 @@ body {
 
 /* ── Execution list (history) ─────────────────────── */
 .exec-list-body {
-  /* Container for execution list items */
+  /* Container for execution list items — kept below the toolbar so range/sort
+     popovers render above the rows. */
+  position: relative;
+  z-index: 1;
 }
 
 .exec-item {
@@ -1635,52 +1639,49 @@ body {
   gap: 3px;
   flex-wrap: wrap;
 }
+/* Module tags render as quiet outline chips (see .ei-row .ei-tag). The old
+   filled per-module backgrounds are intentionally not used. */
 .ei-tag {
   font-size: 9px;
   padding: 1px 5px;
-  border-radius: 6px;
-}
-.et-ci {
-  background: var(--vscode-charts-blue, #0078d4);
-  color: var(--vscode-editor-background);
-  opacity: 0.9;
-}
-.et-cd {
-  background: var(--vscode-charts-green, #388a34);
-  color: var(--vscode-editor-background);
-  opacity: 0.9;
-}
-.et-sto {
-  background: var(--vscode-errorForeground, #f44747);
-  color: var(--vscode-editor-background);
-}
-.et-ti {
-  background: var(--vscode-charts-yellow, #e2b714);
-  color: var(--vscode-editor-background);
-}
-.et-aida {
-  background: var(--vscode-charts-purple, #8b5cf6);
-  color: var(--vscode-editor-background);
-  opacity: 0.9;
+  border-radius: 3px;
 }
 
 /* ── Uniform two-line execution row ─────────────────────────────── */
 .ei-row { align-items: center; }        /* dot centers on the two-line body */
 .ei-row .ei-dot { margin-top: 0; }
 .ei-row .ei-body { display: flex; flex-direction: column; gap: 3px; }
-.ei-row .ei-top { margin-bottom: 0; }
-.ei-row .ei-name { flex: 1 1 auto; }
-.ei-row .ei-dur { margin-left: 2px; }
 
-/* meta = single non-wrapping line; only the branch ellipsizes */
+/* Line 1: name + badge only. Badge alone hugs the right edge. */
+.ei-row .ei-top { display: flex; align-items: center; gap: 6px; margin-bottom: 0; }
+.ei-row .ei-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ei-row .ei-badge { flex-shrink: 0; margin-left: auto; }
+
+/* Line 2 (meta): sha · branch · author · time · duration + module tags, all
+   muted and inline. Single non-wrapping line; only the branch ellipsizes. */
 .ei-row .ei-meta {
   display: flex; align-items: center; gap: 6px;
   flex-wrap: nowrap; overflow: hidden; margin-bottom: 0;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10.5px;
 }
 .ei-row .ei-meta > * { flex-shrink: 0; }
 .ei-row .ei-branch { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ei-row .ei-author,
+.ei-row .ei-time,
+.ei-row .ei-dur { color: var(--vscode-descriptionForeground); }
+.ei-row .ei-dur { font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 2px; }
+.ei-row .ei-dur svg { opacity: .6; }
 .ei-sep { opacity: .5; }
-.ei-row .ei-tags { display: inline-flex; gap: 4px; margin-left: auto; flex-shrink: 0; flex-wrap: nowrap; }
+
+/* module tags: quiet flat outline chips, inline (not filled, not floated) */
+.ei-row .ei-tag {
+  font-size: 8.5px; font-weight: 600; letter-spacing: .04em;
+  padding: 1px 5px; border-radius: 3px;
+  border: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+}
 
 /* Ignore-failed = failure-suppressed: amber warning, distinct from success
    green and hard-failure red. */
@@ -3339,16 +3340,15 @@ a[data-action="openUrl"] { cursor: pointer; }
   border: 1px solid rgba(133,207,255,.2);
 }
 
-.theme-enhanced-dark .ei-tag, .theme-enhanced-light .ei-tag {
-  font-size: 9px;
-  padding: 1px 5px;
-  border-radius: 3px;
+/* Module tags: quiet flat outline chips (match base theme). */
+.theme-enhanced-dark .ei-row .ei-tag, .theme-enhanced-light .ei-row .ei-tag {
+  font-size: 8.5px; font-weight: 600; letter-spacing: .04em;
+  padding: 1px 5px; border-radius: 3px;
+  border: 1px solid var(--line-2); color: var(--fg-3); background: transparent;
 }
-.theme-enhanced-dark , .theme-enhanced-light .et-ci  { background: rgba(133,207,255,.1); color: var(--primary); }
-.theme-enhanced-dark , .theme-enhanced-light .et-cd  { background: var(--success-bg); color: var(--success); }
-.theme-enhanced-dark , .theme-enhanced-light .et-sto { background: var(--error-bg); color: var(--error); }
-.theme-enhanced-dark , .theme-enhanced-light .et-ti  { background: var(--warning-bg); color: var(--warning); }
-.theme-enhanced-dark , .theme-enhanced-light .et-aida { background: rgba(226,182,255,.1); color: var(--secondary); }
+.theme-enhanced-dark .ei-row .ei-author, .theme-enhanced-light .ei-row .ei-author,
+.theme-enhanced-dark .ei-row .ei-time, .theme-enhanced-light .ei-row .ei-time,
+.theme-enhanced-dark .ei-row .ei-dur, .theme-enhanced-light .ei-row .ei-dur { color: var(--fg-3); }
 
 /* ── Pagination ───────────────────────────────────── */
 .theme-enhanced-dark , .theme-enhanced-light .pag-bar,
@@ -4241,7 +4241,7 @@ a[data-action="openUrl"] { cursor: pointer; }
 }
 
 /* Simple theme fallback */
-.hist-sort-wrap { position: relative; display: inline-flex; z-index: 1; }
+.hist-sort-wrap { position: relative; display: inline-flex; z-index: 41; }
 .hist-sort-btn {
   width: 22px; height: 22px;
   background: var(--vscode-button-secondaryBackground);
@@ -4289,7 +4289,7 @@ a[data-action="openUrl"] { cursor: pointer; }
 .hist-sort-menu .menu-div { height: 1px; background: var(--vscode-panel-border); margin: 3px 0; }
 
 /* ── Time-range control (mirrors the sort menu) ─────────────────── */
-.hist-range-wrap { position: relative; display: inline-flex; z-index: 1; }
+.hist-range-wrap { position: relative; display: inline-flex; z-index: 41; }
 .hist-range-btn {
   display: inline-flex; align-items: center; gap: 5px;
   height: 22px; padding: 0 8px;
@@ -4304,7 +4304,7 @@ a[data-action="openUrl"] { cursor: pointer; }
 .hist-range-btn .caret { opacity: 0.6; font-size: 8px; }
 .hist-range-scrim { position: fixed; inset: 0; z-index: 100; }
 .hist-range-menu {
-  position: absolute; top: calc(100% + 4px); right: 0; z-index: 101;
+  position: fixed; z-index: 101;   /* fixed → escapes the scrollable list clip */
   min-width: 160px;
   background: var(--vscode-menu-background, var(--vscode-editor-background));
   border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
