@@ -2602,8 +2602,11 @@ function historyListView(): string {
 // Title-case a raw status enum so we never dump an ALLCAPS value into the badge.
 const titleCase = (s: string) => s.charAt(0) + s.slice(1).toLowerCase();
 
-// Tiny muted clock glyph for the duration in the meta line.
-const clockIcon = () => '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+// Tiny muted glyphs for the row footer (relative time, duration) and the
+// no-git trigger line. All 10px stroked, inherit currentColor.
+const clockIcon = () => '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const durIcon = () => '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 3h6M12 8v5l3 2M12 8a7 7 0 1 0 0 14 7 7 0 0 0 0-14z" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const boltIcon = () => '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>';
 
 function historyItemRow(item: HistoryItem): string {
   const statusNorm = item.status.toUpperCase();
@@ -2649,6 +2652,13 @@ function historyItemRow(item: HistoryItem): string {
   const branch = item.gitBranch ? esc(item.gitBranch) : '';
   const author = item.triggerInfo?.triggeredBy?.identifier || item.triggerInfo?.triggeredBy?.email || '';
   const timeAgo = ago(item.startTs);
+  const git = sha || branch || author;
+  // Fallback label for runs with no git context (keeps line 2 height uniform).
+  const triggerType = (item.triggerInfo as any)?.triggerType || '';
+  const triggerLabel = triggerType === 'SCHEDULER_CRON' ? 'Scheduled trigger'
+                     : triggerType === 'WEBHOOK' || triggerType === 'WEBHOOK_CUSTOM' ? 'Webhook trigger'
+                     : triggerType === 'MANUAL' ? 'Run manually'
+                     : 'Triggered automatically';
 
   return `<div class="exec-item ei-row${currentClass}" data-action="viewExecution" data-exec-id="${esc(item.planExecutionId)}">
     <div class="ei-dot ${dotClass}"></div>
@@ -2658,13 +2668,17 @@ function historyItemRow(item: HistoryItem): string {
         ${currentTag}
         <span class="ei-badge ${badgeClass}">${badgeText}</span>
       </div>
-      <div class="ei-meta">
-        ${sha ? `<span class="ei-sha">${sha}</span>` : ''}
-        ${branch ? `<span class="ei-branch" title="${esc(item.gitBranch)}">${branch}</span>` : ''}
-        ${author ? `<span class="ei-sep">·</span><span class="ei-author">${esc(author)}</span>` : ''}
-        <span class="ei-sep">·</span><span class="ei-time">${timeAgo}</span>
-        ${duration ? `<span class="ei-sep">·</span><span class="ei-dur">${clockIcon()}${duration}</span>` : ''}
-        ${modTags.join('')}
+      <div class="ei-git">
+        ${git ? `
+          ${sha ? `<span class="ei-sha">${sha}</span>` : ''}
+          ${branch ? `<span class="ei-branch" title="${esc(item.gitBranch)}">${branch}</span>` : ''}
+          ${author ? `<span class="ei-sep">·</span><span class="ei-author">${esc(author)}</span>` : ''}
+        ` : `<span class="ei-trig">${boltIcon()} ${esc(triggerLabel)}</span>`}
+      </div>
+      <div class="ei-foot">
+        <span class="ei-time">${clockIcon()}${timeAgo}</span>
+        ${duration ? `<span class="ei-sep">·</span><span class="ei-dur">${durIcon()}${duration}</span>` : ''}
+        ${modTags.length ? `<span class="ei-mods">${modTags.join('')}</span>` : ''}
       </div>
     </div>
   </div>`;
