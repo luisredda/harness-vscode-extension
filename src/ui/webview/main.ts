@@ -38,6 +38,7 @@ function getStateFingerprint(): string {
     state.menuOpen.toString(),
     // AI state
     state.aiShowToolPicker.toString(),
+    state.aiDestination,
     state.aiState,
     state.aiOverlay || '',
   ];
@@ -390,6 +391,7 @@ const state = {
   aiState: 'detecting' as 'detecting' | 'none' | 'unconfigured' | 'ready' | 'sending' | 'error',
   aiQuestion: '',
   aiShowToolPicker: false,
+  aiDestination: 'harness' as 'harness' | 'external', // AI footer: native launcher vs external tool
   aiOverlay: null as 'mcp-setup' | 'mcp-existing' | 'mcp-conflict' | 'mcp-done' | 'response' | 'launched' | null,
   aiMcpConfiguring: false,
   aiMcpSetupScope: 'project' as 'project' | 'global',          // NEW — which radio is selected
@@ -418,7 +420,7 @@ function calculatePageSize(): number {
   const viewToggleHeight = 40;    // Tab switcher
   const toolbarHeight = 48;       // Filter toolbar + "100 runs" line
   const paginationHeight = 36;    // Pagination bar
-  const pinFooterHeight = 28;     // Pin footer hint
+  const pinFooterHeight = 0;      // Pin footer banner removed (pin lives on tab)
   const aiFooterHeight = 48;      // AI input bar
 
   const fixedHeight = headerHeight + projectBarHeight + viewToggleHeight +
@@ -1046,6 +1048,10 @@ window.addEventListener('message', ({ data: msg }) => {
         } else {
           state.aiState = 'ready';
         }
+      }
+      // Restore the persisted AI footer destination (harness vs external)
+      if (msg.aiDestination !== undefined) {
+        state.aiDestination = msg.aiDestination;
       }
       scheduleRender(true); // Force immediate render for state changes
       return; // Skip the scheduleRender at the end
@@ -1764,15 +1770,8 @@ function appMenu(): string {
 
 // ── Pin footer ────────────────────────────────────────────────────────────
 function pinFooter(): string {
-  if (!state.pinnedView) {
-    return '';
-  }
-  const label = state.pinnedView === 'executions' ? 'Executions' : 'Pipelines';
-  return `<div class="pin-footer">
-    <span class="pf-icon">📌</span>
-    <span>"${esc(label)}" opens by default</span>
-    <span class="pf-link" data-action="openPinSettings">Change in settings</span>
-  </div>`;
+  // Pin now lives on the view tab (vt-pin). Banner removed to declutter the footer.
+  return '';
 }
 
 // ── AI Bar (Harness MCP integration) ──────────────────────────────────────
@@ -1885,11 +1884,12 @@ function renderAIToolBadge(toolId: string | null, multi: boolean, warn: boolean)
 }
 
 function renderAIToolPicker(): string {
-  if (!state.aiDetection || !state.aiShowToolPicker || (state.aiDetection.tools.length || 0) < 2) return '';
-  const items = state.aiDetection.tools.map(tool => {
+  if (!state.aiShowToolPicker) return '';
+  const tools = state.aiDetection?.tools ?? [];
+  const items = tools.map(tool => {
     const meta = AI_TOOL_META[tool.id];
     const glyph = getAIToolGlyph(tool.id);
-    const isActive = tool.id === state.aiDetection?.activeTool;
+    const isActive = state.aiDestination === 'external' && tool.id === state.aiDetection?.activeTool;
     const statusClass = tool.mcpReady ? 'is-ok' : 'is-warn';
     const statusText = tool.mcpReady ? 'MCP ready' : 'MCP not configured';
     const check = isActive ? `<span class="aix-picker-check">${checkIcon()}</span>` : '';
@@ -1901,7 +1901,18 @@ function renderAIToolPicker(): string {
       </span>${check}
     </button>`;
   }).join('');
-  return `<div class="aix-picker"><div class="aix-picker-head">Choose AI tool</div>${items}</div>`;
+  const nativeActive = state.aiDestination === 'harness';
+  const nativeRow = `<button type="button" class="aix-picker-item ${nativeActive ? 'on' : ''}" data-action="selectHarnessAI">
+    <span class="aix-picker-ico aix-picker-ico-harness">${harnessIntelligenceIcon()}</span>
+    <span class="aix-picker-text">
+      <span class="aix-picker-name">Harness AI</span>
+      <span class="aix-picker-status">Opens in a new IDE tab</span>
+    </span>${nativeActive ? `<span class="aix-picker-check">${checkIcon()}</span>` : ''}
+  </button>`;
+  const extSection = items
+    ? `<div class="aix-picker-head">Use your favourite AI</div>${items}`
+    : '';
+  return `<div class="aix-picker"><div class="aix-picker-head">Ask</div>${nativeRow}${extSection ? `<div class="aix-picker-div"></div>${extSection}` : ''}</div>`;
 }
 
 /**
@@ -2117,7 +2128,10 @@ function aiFooter(): string {
   let badgeHtml = '';
   if (effectiveState === 'detecting') badgeHtml = `<div class="aix-detect"><span class="aix-spinner"></span></div>`;
   else if (effectiveState === 'none') badgeHtml = renderAIToolBadge(null, false, false);
-  else if (detection?.activeTool) badgeHtml = renderAIToolBadge(detection.activeTool, (detection.tools.length || 0) > 1, effectiveState === 'unconfigured' || effectiveState === 'cursor-no-plugin' || effectiveState === 'cursor-oauth-pending');
+  // Always render the badge as clickable: the picker now always contains the
+  // Harness AI row, so opening it is meaningful even with a single external tool
+  // (lets the user switch back to Harness AI).
+  else if (detection?.activeTool) badgeHtml = renderAIToolBadge(detection.activeTool, true, effectiveState === 'unconfigured' || effectiveState === 'cursor-no-plugin' || effectiveState === 'cursor-oauth-pending');
   const sendContent = effectiveState === 'sending' ? '<span class="aix-send-spin"></span>' : sendIcon();
   let statusHtml = '';
   if (effectiveState !== 'none') {
@@ -2137,8 +2151,25 @@ function aiFooter(): string {
     const scopeChip = (effectiveState === 'ready' && detection?.mcpScope?.activeScope) ? `<span class="aix-scope-tag is-${detection.mcpScope.activeScope}">${detection.mcpScope.activeScope === 'project' ? folderIcon() : homeIcon()}${detection.mcpScope.activeScope}</span>` : '';
     statusHtml = `<div class="aix-status">${statusDot(s.dot as any)}<span class="aix-status-txt">${esc(s.text)}</span>${scopeChip}${linkHtml}</div>`;
   }
-  const harnessAiBtn = `<button type="button" class="aix-harness-btn" data-action="openHarnessChat" title="Open Harness Intelligence Chat">${harnessIntelligenceIcon()}</button>`;
-  return `<div class="aix aix-${effectiveState}">${renderAIToolPicker()}${renderAIMCPCard()}${renderAIResponse()}${renderAILaunched()}<div class="aix-bar">${harnessAiBtn}${badgeHtml}<input class="aix-inp" placeholder="${esc(placeholders[effectiveState])}" value="${esc(question)}" ${inputDisabled ? 'disabled' : ''} data-action="aiInput"/><button type="button" class="aix-send" ${sendDisabled ? 'disabled' : ''} data-action="sendAI">${sendContent}</button></div>${statusHtml}</div>`;
+  const overlays = `${renderAIToolPicker()}${renderAIMCPCard()}${renderAIResponse()}${renderAILaunched()}`;
+
+  // ── Destination: Harness AI (native launcher) ──
+  if (state.aiDestination === 'harness') {
+    const caret = `<button type="button" class="aix-split-caret" data-action="toggleAIToolPicker" aria-label="Choose AI">${chevDownIcon()}</button>`;
+    const main = `<button type="button" class="aix-split-main" data-action="openHarnessChat">
+      <span class="aix-split-ico">${harnessIntelligenceIcon()}</span>
+      <span class="aix-split-label">Ask Harness AI</span>
+    </button>`;
+    return `<div class="aix aix-harness">${overlays}<div class="aix-split">${main}${caret}</div>
+      <div class="aix-split-hint">Opens in a new IDE tab · <span class="aix-split-hint-key">⌄</span> use your favourite AI</div></div>`;
+  }
+
+  // ── Destination: external tool (composer) ──
+  const backLink = `<button type="button" class="aix-back" data-action="selectHarnessAI">↺ Harness AI</button>`;
+  const statusWithBack = statusHtml
+    ? statusHtml.replace('</div>', `${backLink}</div>`)
+    : `<div class="aix-status">${backLink}</div>`;
+  return `<div class="aix aix-${effectiveState}">${overlays}<div class="aix-bar">${badgeHtml}<input class="aix-inp" placeholder="${esc(placeholders[effectiveState])}" value="${esc(question)}" ${inputDisabled ? 'disabled' : ''} data-action="aiInput"/><button type="button" class="aix-send" ${sendDisabled ? 'disabled' : ''} data-action="sendAI">${sendContent}</button></div>${statusWithBack}</div>`;
 }
 
 // ── Git bar ────────────────────────────────────────────────────────────────
@@ -4674,7 +4705,15 @@ function bind(): void {
       console.log('[AI] Select tool:', toolId);
       if (!toolId) return;
       state.aiShowToolPicker = false;
+      state.aiDestination = 'external';
       vscode.postMessage({ type: 'AI_SWITCH_TOOL', toolId });
+      scheduleRender(true);
+    } else if (action === 'selectHarnessAI') {
+      e.preventDefault();
+      e.stopPropagation();
+      state.aiShowToolPicker = false;
+      state.aiDestination = 'harness';
+      vscode.postMessage({ type: 'AI_SET_DESTINATION', destination: 'harness' });
       scheduleRender(true);
     } else if (action === 'showAIMCPSetup') {
       e.preventDefault();

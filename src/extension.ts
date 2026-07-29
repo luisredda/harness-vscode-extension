@@ -28,6 +28,7 @@ import { logger } from './utils/logger';
 
 // Global state key for AI tool preference
 const AI_TOOL_PREFERENCE_KEY = 'harness.aiToolPreference';
+const AI_DESTINATION_KEY = 'harness.aiDestination';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const secretStore    = new SecretStore(context.secrets);
@@ -48,6 +49,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   const setAIToolPreference = async (toolId: string): Promise<void> => {
     await context.globalState.update(AI_TOOL_PREFERENCE_KEY, toolId);
+  };
+
+  // AI footer destination (native "harness" launcher vs external tool) —
+  // persisted so the user's last choice survives IDE restarts.
+  const getAIDestination = (): 'harness' | 'external' => {
+    return context.globalState.get<'harness' | 'external'>(AI_DESTINATION_KEY, 'harness');
+  };
+  const setAIDestination = async (dest: 'harness' | 'external'): Promise<void> => {
+    await context.globalState.update(AI_DESTINATION_KEY, dest);
   };
 
   // ── Log Content Provider (for editor tab logs) ────
@@ -595,6 +605,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!target) return;
       const uri = vscode.Uri.file(target.path);
       await vscode.commands.executeCommand('vscode.open', uri);
+    } else if (m.type === 'AI_SET_DESTINATION') {
+      // Persist the AI footer destination (e.g. user switched back to Harness AI).
+      const aiMsg = m as { type: 'AI_SET_DESTINATION'; destination: 'harness' | 'external' };
+      if (aiMsg.destination === 'harness' || aiMsg.destination === 'external') {
+        await setAIDestination(aiMsg.destination);
+      }
     } else if (m.type === 'AI_SWITCH_TOOL') {
       // Switch active AI tool
       const aiMsg = m as any;
@@ -602,8 +618,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       logger.debug('AI', 'Switching to tool:', aiMsg.toolId);
 
-      // Save preference
+      // Save preference (tool + destination: picking a tool opts into external)
       await setAIToolPreference(aiMsg.toolId);
+      await setAIDestination('external');
 
       // Re-detect with new preference
       const detection = await detectAITools(aiMsg.toolId);
@@ -1113,6 +1130,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     bridge.send({
       type: 'STATE_UPDATE',
       aiDetection: detection,
+      aiDestination: getAIDestination(),
     });
   }).catch(err => {
     logger.error('AI', 'Detection failed:', err);
