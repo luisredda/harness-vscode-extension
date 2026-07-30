@@ -1159,17 +1159,24 @@ async function fetchExecutionHistory(
   try {
     const client = new HarnessClient(config);
 
-    // Build the time window. Verified against the account's execution-summary
-    // endpoint: named enums LAST_7_DAYS/30_DAYS/3_MONTHS/12_MONTHS are accepted;
-    // LAST_24_HOURS is NOT a valid enum but an explicit startTime/endTime inside
-    // timeRange (no filterType) works for it. 'ALL' omits the filter entirely.
-    const NAMED_RANGES = new Set(['LAST_7_DAYS', 'LAST_30_DAYS', 'LAST_3_MONTHS', 'LAST_12_MONTHS']);
+    // Build the time window as an explicit rolling startTime/endTime for EVERY
+    // range. Verified: the named enums (LAST_3_MONTHS etc.) are *calendar-period*
+    // filters — LAST_3_MONTHS returns the 3 whole months BEFORE the current one,
+    // so the newest row is 30+ days old even sorted DESC. Explicit windows give a
+    // true "last N up to now", newest-first. 'ALL' omits the filter entirely.
+    const DAY = 86_400_000;
+    const RANGE_DAYS: Record<string, number> = {
+      LAST_24_HOURS: 1,
+      LAST_7_DAYS: 7,
+      LAST_30_DAYS: 30,
+      LAST_3_MONTHS: 90,
+      LAST_12_MONTHS: 365,
+    };
     const requestBody: any = { filterType: 'PipelineExecution' };
-    if (range === 'LAST_24_HOURS') {
+    if (range !== 'ALL') {
       const now = Date.now();
-      requestBody.timeRange = { startTime: now - 86_400_000, endTime: now };
-    } else if (range !== 'ALL') {
-      requestBody.timeRange = { timeRangeFilterType: NAMED_RANGES.has(range) ? range : 'LAST_7_DAYS' };
+      const days = RANGE_DAYS[range] ?? 1;
+      requestBody.timeRange = { startTime: now - days * DAY, endTime: now };
     }
 
     // Push status + pipeline filters server-side so counts and paging are real.
