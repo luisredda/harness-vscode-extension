@@ -133,6 +133,7 @@ body {
 .theme-enhanced .vt {
   display: flex; align-items: stretch;
   height: 34px;
+  margin-top: 10px;         /* breathing room below the header bar */
   background: var(--bg-1);
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
@@ -1354,7 +1355,7 @@ body {
 /* ── View toggle tabs ─────────────────────────────── */
 .view-toggle {
   display: flex;
-  margin-top: 6px;          /* breathing room below the header bar */
+  margin-top: 10px;         /* breathing room below the header bar */
   border-bottom: 1px solid var(--vscode-panel-border);
   background: var(--vscode-sideBar-background);
 }
@@ -2839,7 +2840,7 @@ a[data-action="openUrl"] { cursor: pointer; }
   display: flex;
   align-items: center;
   height: 32px;
-  margin-top: 6px;          /* breathing room below the header bar */
+  margin-top: 10px;         /* breathing room below the header bar */
   background: var(--bg-surface);
   border-bottom: 1px solid var(--outline-var);
   flex-shrink: 0;
