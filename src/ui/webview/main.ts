@@ -365,7 +365,7 @@ const state = {
   loadingMore: false as boolean, // true while a "Load more" append fetch is in flight
   // Executions time-range control. Values are the exact enums the summary API
   // accepts (verified); 'ALL' means "omit the time filter" server-side.
-  historyRange: 'LAST_30_DAYS' as 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'LAST_3_MONTHS' | 'LAST_12_MONTHS' | 'ALL',
+  historyRange: 'LAST_24_HOURS' as 'LAST_24_HOURS' | 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'LAST_3_MONTHS' | 'LAST_12_MONTHS' | 'ALL',
   rangeMenuOpen: false as boolean,
   rangeMenuPos: { top: 0, left: 0 } as { top: number; left: number }, // fixed-position coords (escape scroll clip)
 
@@ -2421,6 +2421,7 @@ function pipelineRow(p: PipelineItem): string {
 
 // ── History list view ──────────────────────────────────────────────────────
 const RANGE_LABEL: Record<string, string> = {
+  LAST_24_HOURS: 'Last 24 hours',
   LAST_7_DAYS: 'Last 7 days',
   LAST_30_DAYS: 'Last 30 days',
   LAST_3_MONTHS: 'Last 3 months',
@@ -2553,7 +2554,7 @@ function historyListView(): string {
           </div>` : ''}
       </div>
       <div class="hist-range-wrap">
-        <button class="hist-range-btn${state.historyRange === 'LAST_30_DAYS' ? '' : ' modified'}${state.rangeMenuOpen ? ' open' : ''}"
+        <button class="hist-range-btn${state.historyRange === 'LAST_24_HOURS' ? '' : ' modified'}${state.rangeMenuOpen ? ' open' : ''}"
                 data-action="toggleRangeMenu" title="Time range: ${RANGE_LABEL[state.historyRange]}"
                 aria-haspopup="menu" aria-expanded="${state.rangeMenuOpen ? 'true' : 'false'}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4" stroke-linecap="round"/></svg>
@@ -2562,7 +2563,7 @@ function historyListView(): string {
         ${state.rangeMenuOpen ? `
           <div class="hist-range-scrim" data-action="closeRangeMenu"></div>
           <div class="hist-range-menu" role="menu" aria-label="Time range" style="top: ${state.rangeMenuPos.top}px; left: ${state.rangeMenuPos.left}px;">
-            ${(['LAST_7_DAYS','LAST_30_DAYS','LAST_3_MONTHS','LAST_12_MONTHS','ALL'] as const).map(r =>
+            ${(['LAST_24_HOURS','LAST_7_DAYS','LAST_30_DAYS','LAST_3_MONTHS','LAST_12_MONTHS','ALL'] as const).map(r =>
               `<button class="hist-range-opt${state.historyRange === r ? ' selected' : ''}" data-action="setRange" data-range="${r}" role="menuitemradio" aria-checked="${state.historyRange === r}">${RANGE_LABEL[r]}${state.historyRange === r ? '<span class="ck">✓</span>' : ''}</button>`).join('')}
           </div>` : ''}
       </div>
@@ -2639,7 +2640,14 @@ function historyItemRow(item: HistoryItem): string {
   const mi = item.moduleInfo as any;
   if (mi?.ci) modTags.push(`<span class="ei-tag et-ci">CI${statusNorm === 'RUNNING' ? ' ▶' : ''}</span>`);
   if (mi?.cd) modTags.push(`<span class="ei-tag et-cd">CD</span>`);
-  if (mi?.sto && ((mi.sto as any).count ?? 0) > 0) modTags.push(`<span class="ei-tag et-sto">STO ${(mi.sto as any).count}</span>`);
+  // Security (SEC) from the summary payload only: top-level moduleInfo.sto,
+  // a parsed scan, or any stage whose moduleInfo carries `sto`. Note: STO run
+  // purely as steps inside a CI stage is not visible in the summary (it only
+  // shows in the full execution graph), so those rows won't show a SEC chip —
+  // detecting them would need a per-row graph fetch, which we avoid here.
+  const lnm = (item as any).layoutNodeMap as Record<string, any> | undefined;
+  const stageHasSto = lnm ? Object.values(lnm).some(n => n?.moduleInfo && (n.moduleInfo as any).sto) : false;
+  if (mi?.sto || (item as any).stoScan || stageHasSto) modTags.push(`<span class="ei-tag et-sto">SEC</span>`);
   if (mi?.ti) {
     const tiData = mi.ti as any;
     const selected = tiData.selected ?? 0;

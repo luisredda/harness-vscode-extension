@@ -306,7 +306,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Silent return - empty state in webview will handle unconfigured state
         return;
       }
-      await fetchExecutionHistory(currentConfig, bridge, m.page ?? 0, m.filter ?? 'all', m.pageSize ?? 15, m.pipelineId, m.range ?? 'LAST_30_DAYS');
+      await fetchExecutionHistory(currentConfig, bridge, m.page ?? 0, m.filter ?? 'all', m.pageSize ?? 15, m.pipelineId, m.range ?? 'LAST_24_HOURS');
     } else if (m.type === 'fetchExecutionDetail') {
       logger.debug('Extension', 'fetchExecutionDetail message received', { planExecutionId: m.planExecutionId, hasConfig: !!currentConfig });
       if (!currentConfig || !m.planExecutionId) {
@@ -1153,19 +1153,23 @@ async function fetchExecutionHistory(
   filter: string,
   pageSize: number,
   pipelineId?: string,
-  range: string = 'LAST_30_DAYS'
+  range: string = 'LAST_24_HOURS'
 ): Promise<void> {
   logger.debug('Extension', 'fetchExecutionHistory called', { page, filter, pageSize, pipelineId, range, org: config.orgIdentifier, project: config.projectIdentifier });
   try {
     const client = new HarnessClient(config);
 
-    // Build the time window. Values verified against the account's
-    // execution-summary endpoint: only these named ranges are accepted; there
-    // is no CUSTOM/24h/90d. 'ALL' means omit the timeRange filter entirely.
+    // Build the time window. Verified against the account's execution-summary
+    // endpoint: named enums LAST_7_DAYS/30_DAYS/3_MONTHS/12_MONTHS are accepted;
+    // LAST_24_HOURS is NOT a valid enum but an explicit startTime/endTime inside
+    // timeRange (no filterType) works for it. 'ALL' omits the filter entirely.
     const NAMED_RANGES = new Set(['LAST_7_DAYS', 'LAST_30_DAYS', 'LAST_3_MONTHS', 'LAST_12_MONTHS']);
     const requestBody: any = { filterType: 'PipelineExecution' };
-    if (range !== 'ALL') {
-      requestBody.timeRange = { timeRangeFilterType: NAMED_RANGES.has(range) ? range : 'LAST_30_DAYS' };
+    if (range === 'LAST_24_HOURS') {
+      const now = Date.now();
+      requestBody.timeRange = { startTime: now - 86_400_000, endTime: now };
+    } else if (range !== 'ALL') {
+      requestBody.timeRange = { timeRangeFilterType: NAMED_RANGES.has(range) ? range : 'LAST_7_DAYS' };
     }
 
     // Push status + pipeline filters server-side so counts and paging are real.
@@ -1250,6 +1254,9 @@ async function fetchExecutionHistory(
         startTs: ex.startTs,
         endTs: ex.endTs,
         moduleInfo: ex.moduleInfo,
+        // Stage-level module map — lets the row detect security (STO) even when
+        // it runs as steps inside a CI/other stage (top-level moduleInfo misses it).
+        layoutNodeMap: (ex as any).layoutNodeMap,
         triggerInfo: ex.executionTriggerInfo,
         gitSha,
         gitBranch,
