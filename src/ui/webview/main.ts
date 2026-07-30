@@ -523,7 +523,7 @@ window.addEventListener('message', ({ data: msg }) => {
         console.log('[Webview] Fetching data for view:', state.viewMode);
         if (state.viewMode === 'executions') {
           state.loadingExecution = true;
-          vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId });
+          vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId, range: state.historyRange });
         } else if (state.viewMode === 'pipelines') {
           state.loadingPipelines = true;
           vscode.postMessage({ type: 'fetchPipelines' });
@@ -576,7 +576,7 @@ window.addEventListener('message', ({ data: msg }) => {
         // Fetch fresh data for current view
         if (state.viewMode === 'executions') {
           state.loadingExecution = true;
-          vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId });
+          vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId, range: state.historyRange });
         } else if (state.viewMode === 'pipelines') {
           state.loadingPipelines = true;
           vscode.postMessage({ type: 'fetchPipelines' });
@@ -1040,7 +1040,7 @@ window.addEventListener('message', ({ data: msg }) => {
           // Fetch data for current view
           if (state.viewMode === 'executions') {
             state.loadingExecution = true;
-            vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId });
+            vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId, range: state.historyRange });
           } else if (state.viewMode === 'pipelines') {
             state.loadingPipelines = true;
             vscode.postMessage({ type: 'fetchPipelines' });
@@ -4200,7 +4200,7 @@ function bind(): void {
     state.executions.clear();
     // Request history data from extension host (using initial calculated page size)
     console.log('[Webview] Sending fetchHistory message', { page: 0, filter: state.historyFilter, pageSize: state.historyPageSize });
-    vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize });
+    vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize, range: state.historyRange });
     scheduleRender(true); // User action
   });
 
@@ -4247,7 +4247,8 @@ function bind(): void {
         page: 0,
         filter: state.historyFilter,
         pageSize: state.historyPageSize,
-        pipelineId: pipelineId
+        pipelineId: pipelineId,
+        range: state.historyRange
       });
 
       scheduleRender(true);
@@ -4397,7 +4398,7 @@ function bind(): void {
     state.filteredPipelineId = null;
     state.historyPage = 0;
     state.loadingExecution = true;
-    vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize });
+    vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize, range: state.historyRange });
     scheduleRender(true); // User action
   });
 

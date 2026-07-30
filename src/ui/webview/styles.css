@@ -3722,7 +3722,7 @@ a[data-action="openUrl"] { cursor: pointer; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px 6px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -3757,14 +3757,14 @@ a[data-action="openUrl"] { cursor: pointer; }
 
 /* Pipeline search box */
 .theme-enhanced .pl-search-wrap {
-  padding: 10px 12px;
+  padding: 8px 10px 6px;   /* match .hist-toolbar rhythm on the Executions tab */
   border-bottom: 1px solid var(--line);
 }
 
 .theme-enhanced .pl-search {
   width: 100%;
-  padding: 8px 12px 8px 36px;
-  font-size: 13px;
+  padding: 6px 12px 6px 32px;
+  font-size: 12px;
   background: var(--bg-1);
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -3773,7 +3773,7 @@ a[data-action="openUrl"] { cursor: pointer; }
   transition: all 0.15s;
   background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>');
   background-repeat: no-repeat;
-  background-position: 10px center;
+  background-position: 9px center;
 }
 
 .theme-enhanced .pl-search:focus {
@@ -3792,7 +3792,7 @@ a[data-action="openUrl"] { cursor: pointer; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px 6px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--line);
 }
 
