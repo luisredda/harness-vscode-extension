@@ -421,7 +421,7 @@ function calculatePageSize(): number {
   const viewportHeight = window.innerHeight;
 
   // Fixed element heights (more accurate measurements)
-  const headerHeight = 40;        // Harness header (flat compact bar)
+  const headerHeight = 44;        // Harness header (flat compact bar)
   const projectBarHeight = 0;     // Project folded into the header bar
   const viewToggleHeight = 40;    // Tab switcher
   const toolbarHeight = 48;       // Filter toolbar + "100 runs" line
@@ -2494,11 +2494,13 @@ function historyListView(): string {
   const commitPillDisabled = !state.gitCtx?.commitSha ? ' disabled' : '';
 
   parts.push(`<div class="hist-toolbar">
-    <div class="hist-filters">
-      <button class="f-pill${allActive}"     data-action="filterAll">All</button>
-      <button class="f-pill${failedActive}"  data-action="filterFailed">✕ Failed</button>
-      <button class="f-pill${successActive}" data-action="filterSuccess">✓ Success</button>
-      <button class="f-pill${waitingActive}" data-action="filterWaiting">⏱ Waiting</button>
+    <div class="hist-filters hist-row-status">
+      <button class="f-pill f-all${allActive}"         data-action="filterAll">All</button>
+      <button class="f-pill f-failed${failedActive}"   data-action="filterFailed"><span class="f-dot"></span>Failed</button>
+      <button class="f-pill f-success${successActive}" data-action="filterSuccess"><span class="f-dot"></span>Success</button>
+      <button class="f-pill f-waiting${waitingActive}" data-action="filterWaiting"><span class="f-dot"></span>Waiting</button>
+    </div>
+    <div class="hist-row-mods">
       <button class="f-pill commit-pill${commitPillOn}${commitPillDisabled}"
               data-action="toggleCurrentCommitFilter"
               title="${state.gitCtx?.commitSha ? 'Filter to current commit' : 'No git commit detected'}"
@@ -2512,6 +2514,7 @@ function historyListView(): string {
         <span class="hist-pf-label">⚡ ${esc(filteredPipelineName)}</span>
         <button class="hist-pf-clear" data-action="clearPipelineFilter" title="Clear pipeline filter">×</button>
       </span>` : ''}
+      <span class="hist-mods-spacer"></span>
       <div class="hist-sort-wrap">
         <button class="hist-sort-btn${sortIsDefault ? '' : ' modified'}${state.sortMenuOpen ? ' open' : ''}"
                 data-action="toggleSortMenu"
@@ -2549,6 +2552,7 @@ function historyListView(): string {
       <span class="hist-count-chip"><span class="hc-n">${displayList.length}</span><span class="hc-sep">/</span><span class="hc-total">${totalCount}</span></span>
     </div>
   </div>`);
+  // (toolbar: row 1 = status filters, row 2 = current-commit + sort/range/count)
 
   // Execution list (scrollable area)
   parts.push(`<div class="exec-list-body">`);

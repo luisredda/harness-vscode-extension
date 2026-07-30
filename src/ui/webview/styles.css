@@ -1049,14 +1049,14 @@ body {
 .harness-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 12px;
+  gap: 10px;
+  height: 44px;
+  padding: 0 14px;
   background: var(--vscode-sideBar-background);
   border-bottom: 1px solid var(--vscode-panel-border);
 }
 .harness-logo-img {
-  height: 18px;
+  height: 20px;
   width: auto;
   flex-shrink: 0;
   filter: none;                 /* real teal mark, not white-on-blue */
@@ -1457,24 +1457,29 @@ body {
 }
 .pf-link:hover { text-decoration: underline; }
 
-/* ── History toolbar ──────────────────────────────── */
+/* ── History toolbar — two rows: status filters / modifiers ─────── */
 .hist-toolbar {
   padding: 6px 10px;
   background: var(--vscode-editor-background);
   border-bottom: 1px solid var(--vscode-panel-border);
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
   flex-shrink: 0;
-  flex-wrap: nowrap;
-  overflow-x: auto;
   overflow-y: visible;      /* let popovers escape the toolbar vertically */
   position: relative;
   z-index: 40;              /* toolbar (and its popovers) above the list */
 }
+.hist-row-status, .hist-row-mods { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.hist-row-mods { flex-wrap: wrap; }
+.hist-mods-spacer { flex: 1 1 auto; }
+
 .f-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 10px;
-  padding: 2px 5px;
+  padding: 2px 8px;
   border-radius: 8px;
   border: 1px solid var(--vscode-panel-border);
   background: transparent;
@@ -1486,19 +1491,22 @@ body {
   border-color: var(--vscode-focusBorder);
   color: var(--vscode-foreground);
 }
-.f-pill.on {
-  border-color: var(--vscode-charts-blue, #0078d4);
-  color: var(--vscode-editor-background);
-  background: var(--vscode-charts-blue, #0078d4);
-  font-weight: 600;
-}
-.f-sep {
-  flex: 1;
-}
-.f-cnt {
-  font-size: 10px;
-  color: var(--vscode-descriptionForeground);
-}
+.f-pill.on { font-weight: 600; }
+
+/* status color dot on each filter pill (All has none) */
+.f-pill .f-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+.f-failed  .f-dot { background: var(--vscode-charts-red,    #e5484d); }
+.f-success .f-dot { background: var(--vscode-charts-green,  #30a46c); }
+.f-waiting .f-dot { background: var(--vscode-charts-yellow, #e2b714); }
+
+/* active pill adopts its OWN status color, not a generic blue */
+.f-pill.f-all.on     { background: var(--vscode-charts-blue, #0078d4); border-color: var(--vscode-charts-blue, #0078d4); color: #fff; }
+.f-pill.f-failed.on  { background: color-mix(in srgb, var(--vscode-charts-red, #e5484d)    18%, transparent); border-color: var(--vscode-charts-red, #e5484d);    color: var(--vscode-charts-red, #e5484d); }
+.f-pill.f-success.on { background: color-mix(in srgb, var(--vscode-charts-green, #30a46c)  18%, transparent); border-color: var(--vscode-charts-green, #30a46c);  color: var(--vscode-charts-green, #30a46c); }
+.f-pill.f-waiting.on { background: color-mix(in srgb, var(--vscode-charts-yellow, #e2b714) 18%, transparent); border-color: var(--vscode-charts-yellow, #e2b714); color: var(--vscode-charts-yellow, #e2b714); }
+
+.f-sep { flex: 1; }
+.f-cnt { font-size: 10px; color: var(--vscode-descriptionForeground); }
 
 /* ── Execution list (history) ─────────────────────── */
 .exec-list-body {
@@ -2717,12 +2725,12 @@ a[data-action="openUrl"] { cursor: pointer; }
 
 /* ── Header ────────────────────────────────────────── */
 .theme-enhanced-dark .harness-header, .theme-enhanced-light .harness-header {
-  height: 40px;
+  height: 44px;
   background: var(--bg-base);
   border-bottom: 1px solid var(--outline-var);
   display: flex;
   align-items: center;
-  padding: 0 12px;
+  padding: 0 14px;
   gap: 10px;
   flex-shrink: 0;
 }
@@ -4031,6 +4039,15 @@ a[data-action="openUrl"] { cursor: pointer; }
   flex-wrap: wrap;
   min-width: 0;
 }
+
+/* Color-coded status filters — enhanced theme tokens */
+.theme-enhanced .f-failed  .f-dot { background: var(--err); }
+.theme-enhanced .f-success .f-dot { background: var(--ok); }
+.theme-enhanced .f-waiting .f-dot { background: var(--warn); }
+.theme-enhanced .f-pill.f-all.on     { background: var(--accent); border-color: var(--accent); color: var(--bg-0, #fff); }
+.theme-enhanced .f-pill.f-failed.on  { background: color-mix(in srgb, var(--err) 18%, transparent);  border-color: var(--err);  color: var(--err); }
+.theme-enhanced .f-pill.f-success.on { background: color-mix(in srgb, var(--ok) 18%, transparent);   border-color: var(--ok);   color: var(--ok); }
+.theme-enhanced .f-pill.f-waiting.on { background: color-mix(in srgb, var(--warn) 18%, transparent); border-color: var(--warn); color: var(--warn); }
 
 /* Current-commit pill (extends .f-pill) */
 .theme-enhanced .f-pill.commit-pill {
