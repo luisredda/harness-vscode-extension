@@ -132,8 +132,8 @@ body {
 /* ── View Toggle ─────────────────────────────────────────────────── */
 .theme-enhanced .vt {
   display: flex; align-items: stretch;
-  height: 34px;
-  margin-top: 10px;         /* breathing room below the header bar */
+  height: 42px;             /* taller so labels center with breathing room */
+  margin-top: 14px;         /* clear separation from the header bar */
   background: var(--bg-1);
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;

@@ -423,7 +423,7 @@ function calculatePageSize(): number {
   // Fixed element heights (more accurate measurements)
   const headerHeight = 50;        // Harness header (flat compact bar) — keep in sync with .harness-header
   const projectBarHeight = 0;     // Project folded into the header bar
-  const viewToggleHeight = 40;    // Tab switcher
+  const viewToggleHeight = 56;    // Tab switcher (42px bar + 14px margin-top)
   const toolbarHeight = 48;       // Filter toolbar + "100 runs" line
   const paginationHeight = 36;    // Pagination bar
   const pinFooterHeight = 0;      // Pin footer banner removed (pin lives on tab)
