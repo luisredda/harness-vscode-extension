@@ -3732,7 +3732,7 @@ a[data-action="openUrl"] { cursor: pointer; }
 
 /* Pipeline search box */
 .theme-enhanced .pl-search-wrap {
-  padding: 12px;
+  padding: 8px 10px 6px;   /* match .hist-toolbar top rhythm exactly */
   border-bottom: 1px solid var(--line);
 }
 
