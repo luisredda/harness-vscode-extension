@@ -1658,11 +1658,14 @@ body {
   align-items: center;
   padding: 10px 12px 11px 11px;
 }
+/* Clip the row so a long name can never widen it past the panel. */
+.ei-row { overflow: hidden; }
 .ei-row .ei-dot { grid-column: 1; grid-row: 1 / span 3; align-self: center; margin-top: 0; width: 8px; height: 8px; }
 .ei-row .ei-body { display: contents; }  /* let the three lines sit directly on the grid */
 
-/* line 1 — name + badge */
-.ei-row .ei-top { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 6px; margin-bottom: 0; }
+/* line 1 — name + badge. min-width:0 on the flex row lets the 1fr grid track
+   shrink so the name truncates with … on the right (badge keeps its size). */
+.ei-row .ei-top { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 6px; margin-bottom: 0; min-width: 0; overflow: hidden; }
 .ei-row .ei-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; }
 .ei-row .ei-badge { flex-shrink: 0; margin-left: auto; }
 
@@ -1683,9 +1686,11 @@ body {
 .ei-row .ei-foot {
   grid-column: 2; grid-row: 3;
   display: flex; align-items: center; gap: 7px;
+  min-width: 0; overflow: hidden;
   font-family: var(--vscode-editor-font-family, monospace); font-size: 10px;
   color: var(--vscode-descriptionForeground);
 }
+.ei-row .ei-mods { flex-shrink: 0; }
 .ei-row .ei-time, .ei-row .ei-dur { display: inline-flex; align-items: center; gap: 4px; }
 .ei-row .ei-dur { font-variant-numeric: tabular-nums; }
 .ei-row .ei-foot svg { opacity: .6; }
