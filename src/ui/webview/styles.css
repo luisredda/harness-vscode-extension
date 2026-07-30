@@ -1050,13 +1050,13 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 46px;
+  height: 50px;
   padding: 0 14px;
   background: var(--vscode-sideBar-background);
   border-bottom: 1px solid var(--vscode-panel-border);
 }
 .harness-logo-img {
-  height: 20px;
+  height: 21px;
   width: auto;
   flex-shrink: 0;
   filter: none;                 /* real teal mark, not white-on-blue */
@@ -1511,9 +1511,30 @@ body {
 /* ── Execution list (history) ─────────────────────── */
 .exec-list-body {
   /* Container for execution list items — kept below the toolbar so range/sort
-     popovers render above the rows. */
+     popovers render above the rows. min-height holds the panel's height across
+     loading→loaded so the view doesn't visibly resize after opening. */
   position: relative;
   z-index: 1;
+  min-height: 60vh;
+}
+
+/* ── Skeleton loading rows (reserve final height, no post-load jump) ── */
+.ei-skel { pointer-events: none; }
+.ei-skel .ei-dot { background: var(--vscode-panel-border); }
+.sk {
+  display: inline-block; height: 10px; border-radius: 3px;
+  background: linear-gradient(90deg, var(--vscode-panel-border) 25%, var(--vscode-editorWidget-background) 37%, var(--vscode-panel-border) 63%);
+  background-size: 400% 100%;
+  animation: sk-shimmer 1.2s ease-in-out infinite;
+}
+.sk-name { width: 60%; }
+.sk-badge { width: 54px; margin-left: auto; }
+.sk-git  { width: 78%; height: 9px; }
+.sk-foot { width: 45%; height: 9px; }
+@keyframes sk-shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+.theme-enhanced .sk {
+  background: linear-gradient(90deg, var(--bg-2) 25%, var(--bg-3) 37%, var(--bg-2) 63%);
+  background-size: 400% 100%;
 }
 
 .exec-item {
@@ -2729,7 +2750,7 @@ a[data-action="openUrl"] { cursor: pointer; }
 
 /* ── Header ────────────────────────────────────────── */
 .theme-enhanced-dark .harness-header, .theme-enhanced-light .harness-header {
-  height: 46px;
+  height: 50px;
   background: var(--bg-base);
   border-bottom: 1px solid var(--outline-var);
   display: flex;
@@ -2738,6 +2759,7 @@ a[data-action="openUrl"] { cursor: pointer; }
   gap: 10px;
   flex-shrink: 0;
 }
+.theme-enhanced-dark .harness-logo-img, .theme-enhanced-light .harness-logo-img { height: 21px; }
 
 .theme-enhanced-dark .harness-logo, .theme-enhanced-light .harness-logo {
   display: flex;

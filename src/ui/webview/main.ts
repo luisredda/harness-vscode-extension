@@ -421,7 +421,7 @@ function calculatePageSize(): number {
   const viewportHeight = window.innerHeight;
 
   // Fixed element heights (more accurate measurements)
-  const headerHeight = 46;        // Harness header (flat compact bar)
+  const headerHeight = 50;        // Harness header (flat compact bar) — keep in sync with .harness-header
   const projectBarHeight = 0;     // Project folded into the header bar
   const viewToggleHeight = 40;    // Tab switcher
   const toolbarHeight = 48;       // Filter toolbar + "100 runs" line
@@ -2563,7 +2563,19 @@ function historyListView(): string {
   parts.push(`<div class="exec-list-body">`);
 
   if (state.loadingExecution) {
-    parts.push(`<div class="loading">Loading executions...</div>`);
+    // Skeleton rows fill the same space the real list will occupy, so the panel
+    // paints at its final height and real rows swap in with no post-load jump.
+    const n = Math.max(8, Math.min(state.historyPageSize, 12));
+    for (let i = 0; i < n; i++) {
+      parts.push(`<div class="exec-item ei-row ei-skel" aria-hidden="true">
+        <div class="ei-dot"></div>
+        <div class="ei-body">
+          <div class="ei-top"><span class="sk sk-name"></span><span class="sk sk-badge"></span></div>
+          <div class="ei-git"><span class="sk sk-git"></span></div>
+          <div class="ei-foot"><span class="sk sk-foot"></span></div>
+        </div>
+      </div>`);
+    }
   } else if (displayList.length === 0) {
     // Special message when current commit filter is on but no match
     if (state.currentCommitFilter && state.gitCtx?.commitSha) {
