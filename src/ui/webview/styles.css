@@ -1050,7 +1050,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 44px;
+  height: 46px;
   padding: 0 14px;
   background: var(--vscode-sideBar-background);
   border-bottom: 1px solid var(--vscode-panel-border);
@@ -1635,6 +1635,9 @@ body {
   font-size: 9px;
   padding: 1px 5px;
   border-radius: 3px;
+  border: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
 }
 
 /* ── Three-line execution row ───────────────────────────────────────
@@ -2726,7 +2729,7 @@ a[data-action="openUrl"] { cursor: pointer; }
 
 /* ── Header ────────────────────────────────────────── */
 .theme-enhanced-dark .harness-header, .theme-enhanced-light .harness-header {
-  height: 44px;
+  height: 46px;
   background: var(--bg-base);
   border-bottom: 1px solid var(--outline-var);
   display: flex;
@@ -3697,7 +3700,7 @@ a[data-action="openUrl"] { cursor: pointer; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 8px 12px 6px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -3732,7 +3735,7 @@ a[data-action="openUrl"] { cursor: pointer; }
 
 /* Pipeline search box */
 .theme-enhanced .pl-search-wrap {
-  padding: 8px 10px 6px;   /* match .hist-toolbar top rhythm exactly */
+  padding: 10px 12px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -3767,7 +3770,7 @@ a[data-action="openUrl"] { cursor: pointer; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 8px 12px 6px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -3863,11 +3866,16 @@ a[data-action="openUrl"] { cursor: pointer; }
 }
 
 .theme-enhanced .pl-tags {
-  font-size: 10px;
-  color: var(--fg-1);
-  margin-top: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
   margin-bottom: 6px;
-  opacity: 0.75;
+}
+.theme-enhanced .ei-tag {
+  border: 1px solid var(--line-2);
+  color: var(--fg-3);
+  background: transparent;
 }
 .theme-enhanced .pl-type {
   opacity: 0.6;
@@ -3900,10 +3908,11 @@ a[data-action="openUrl"] { cursor: pointer; }
 }
 
 .theme-enhanced .rs-ok { background: var(--ok); }
+.theme-enhanced .rs-ign { background: var(--warn); }   /* ignoreFailed = amber (matches Executions badge) */
 .theme-enhanced .rs-err { background: var(--err); }
 .theme-enhanced .rs-run { background: var(--accent); animation: pulse 1.5s infinite; }
 .theme-enhanced .rs-wait { background: var(--warn); }
-.theme-enhanced .rs-abort { background: var(--bg-4); }
+.theme-enhanced .rs-abort { background: color-mix(in oklch, var(--fg-3) 70%, var(--err) 30%); opacity: 1; }
 .theme-enhanced .rs-pend { background: var(--bg-3); }
 
 
@@ -3989,12 +3998,13 @@ a[data-action="openUrl"] { cursor: pointer; }
   color: var(--vscode-descriptionForeground);
 }
 .pl-tags {
-  font-size: 10px;
-  color: var(--vscode-descriptionForeground);
-  margin-top: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
   margin-bottom: 6px;
-  opacity: 0.75;
 }
+.pl-tag-more { opacity: 0.7; }
 .pl-type { opacity: 0.6; font-weight: normal; }
 .pl-search { width: 100%; padding: 6px; border: 1px solid var(--vscode-panel-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); }
 .hist-count-chip {
@@ -4019,10 +4029,11 @@ a[data-action="openUrl"] { cursor: pointer; }
   opacity: 0.45;
 }
 .rs-ok { background: var(--vscode-testing-iconPassed, var(--vscode-charts-green, oklch(68% 0.14 150))); }
+.rs-ign { background: var(--vscode-charts-yellow, #e2b714); }   /* ignoreFailed = amber (matches Executions badge) */
 .rs-err { background: var(--vscode-testing-iconFailed, var(--vscode-errorForeground, oklch(62% 0.18 28))); }
 .rs-run { background: var(--vscode-charts-blue, var(--vscode-textLink-foreground)); }
 .rs-wait { background: var(--vscode-charts-yellow, oklch(74% 0.13 75)); }
-.rs-abort { background: var(--vscode-descriptionForeground, oklch(60% 0.01 260)); opacity: 0.5; }
+.rs-abort { background: var(--vscode-charts-purple, #8250df); opacity: 0.8; }   /* distinct muted tile, not grey */
 .rs-pend { background: var(--vscode-panel-border); }
 
 /* ══════════════════════════════════════════════════════════════════

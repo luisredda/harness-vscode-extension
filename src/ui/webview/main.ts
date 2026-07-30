@@ -421,7 +421,7 @@ function calculatePageSize(): number {
   const viewportHeight = window.innerHeight;
 
   // Fixed element heights (more accurate measurements)
-  const headerHeight = 44;        // Harness header (flat compact bar)
+  const headerHeight = 46;        // Harness header (flat compact bar)
   const projectBarHeight = 0;     // Project folded into the header bar
   const viewToggleHeight = 40;    // Tab switcher
   const toolbarHeight = 48;       // Filter toolbar + "100 runs" line
@@ -2356,14 +2356,17 @@ function pipelineRow(p: PipelineItem): string {
   // API returns newest first, so reverse to show oldest→newest (left to right)
   const runHistory = (p.recentExecutions ?? []).slice(0, 5).reverse();
   const historySquares = runHistory.map((e, idx) => {
-    const sqClass = e.status === 'SUCCESS' ? 'rs-ok'
-                  : e.status === 'FAILED' ? 'rs-err'
-                  : e.status === 'RUNNING' || e.status === 'ASYNC_WAITING' ? 'rs-run'
-                  : e.status === 'APPROVALWAITING' ? 'rs-wait'
-                  : e.status === 'ABORTED' ? 'rs-abort'
+    // Normalize case — the API returns mixed-case statuses ("Success", "IgnoreFailed").
+    const st = (e.status || '').toUpperCase();
+    const sqClass = st === 'SUCCESS' ? 'rs-ok'
+                  : st === 'IGNOREFAILED' || st === 'IGNORE_FAILED' ? 'rs-ign'
+                  : st === 'FAILED' ? 'rs-err'
+                  : st === 'RUNNING' || st === 'ASYNC_WAITING' ? 'rs-run'
+                  : st === 'APPROVALWAITING' || st === 'WAITING' || st === 'INTERVENTIONWAITING' ? 'rs-wait'
+                  : st === 'ABORTED' || st === 'EXPIRED' ? 'rs-abort'
                   : 'rs-pend';
     const isLatest = idx === runHistory.length - 1;
-    const title = `${e.status} · ${timeAgo(e.startTs)}`;
+    const title = `${titleCase(st)} · ${timeAgo(e.startTs)}`;
     return `<span class="rs-cell ${sqClass}${isLatest ? ' rs-latest' : ''}" title="${esc(title)}"></span>`;
   }).join('');
 
@@ -2372,8 +2375,9 @@ function pipelineRow(p: PipelineItem): string {
 
   // Tags display
   const tagEntries = Object.entries(p.tags ?? {});
+  const shownTags = tagEntries.slice(0, 3);
   const tagsHtml = tagEntries.length > 0
-    ? `<div class="pl-tags">🏷️ ${tagEntries.map(([k, v]) => `${esc(k)}: ${esc(v)}`).join(' · ')}</div>`
+    ? `<div class="pl-tags">${shownTags.map(([k, v]) => `<span class="ei-tag">${esc(k)}${v ? ': ' + esc(v) : ''}</span>`).join('')}${tagEntries.length > 3 ? `<span class="ei-tag pl-tag-more">+${tagEntries.length - 3}</span>` : ''}</div>`
     : '';
 
   // Meta info: clock icon + time · executor
