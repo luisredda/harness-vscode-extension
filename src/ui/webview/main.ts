@@ -421,8 +421,8 @@ function calculatePageSize(): number {
   const viewportHeight = window.innerHeight;
 
   // Fixed element heights (more accurate measurements)
-  const headerHeight = 56;        // Harness header (blue gradient)
-  const projectBarHeight = 34;    // Project bar
+  const headerHeight = 40;        // Harness header (flat compact bar)
+  const projectBarHeight = 0;     // Project folded into the header bar
   const viewToggleHeight = 40;    // Tab switcher
   const toolbarHeight = 48;       // Filter toolbar + "100 runs" line
   const paginationHeight = 36;    // Pagination bar
@@ -1686,37 +1686,16 @@ function harnessHeader(org?: string, project?: string): string {
     </svg>
   </button>`;
 
-  // Enhanced theme uses the same blue gradient header as simple theme
-  if (state.webviewTheme === 'enhanced') {
-    const logoUrl = typeof __HARNESS_LOGO__ !== 'undefined' ? __HARNESS_LOGO__ : '';
-    const projectBar = (org || project)
-      ? `<div class="project-bar">
-          <span class="project-bar-text">${org ? esc(org) : ''}${org && project ? ' / ' : ''}${project ? esc(project) : ''}</span>
-          <button class="project-bar-btn" data-action="selectProject">Switch</button>
-        </div>`
-      : '';
-    return `<div class="harness-header">
-      ${logoUrl ? `<img class="harness-logo-img" src="${esc(logoUrl)}" alt="Harness" />` : ''}
-      <span class="harness-subtitle">AI for Everything After Code</span>
-      ${menuButton}
-    </div>
-    ${projectBar}`;
-  }
-
-  // Simple theme header: Harness logo + subtitle + menu button + project bar
+  // One compact flat bar: Harness mark + org / project + Switch + menu.
+  // No blue gradient, no tagline, no separate project strip.
   const logoUrl = typeof __HARNESS_LOGO__ !== 'undefined' ? __HARNESS_LOGO__ : '';
-  const projectBar = (org || project)
-    ? `<div class="project-bar">
-        <span class="project-bar-text">${org ? esc(org) : ''}${org && project ? ' / ' : ''}${project ? esc(project) : ''}</span>
-        <button class="project-bar-btn" data-action="selectProject">Switch</button>
-      </div>`
-    : '';
+  const projText = `${org ? esc(org) : ''}${org && project ? ' / ' : ''}${project ? esc(project) : ''}`;
   return `<div class="harness-header">
     ${logoUrl ? `<img class="harness-logo-img" src="${esc(logoUrl)}" alt="Harness" />` : ''}
-    <span class="harness-subtitle">AI for Everything After Code</span>
+    ${projText ? `<span class="harness-project">${projText}</span>` : ''}
+    ${(org || project) ? `<button class="harness-switch" data-action="selectProject">Switch</button>` : ''}
     ${menuButton}
-  </div>
-  ${projectBar}`;
+  </div>`;
 }
 
 // ── App Menu ───────────────────────────────────────────────────────────────
@@ -2628,7 +2607,7 @@ function historyItemRow(item: HistoryItem): string {
                   : statusNorm === 'APPROVALWAITING' ? 'Approval Waiting'
                   : titleCase(statusNorm);
 
-  const duration = item.endTs ? dur(item.startTs, item.endTs) : `${Math.floor((Date.now() - item.startTs) / 1000)}s…`;
+  const duration = dur(item.startTs, item.endTs);  // dur() falls back to now when endTs is missing → running shows m:ss, not raw 4354s…
 
   const currentClass = item.isCurrentCommit ? ' current' : '';
   const currentTag = item.isCurrentCommit

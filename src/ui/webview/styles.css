@@ -1045,77 +1045,59 @@ body {
    ══════════════════════════════════════════════════════════════ */
 
 /* ── Harness header ───────────────────────────────── */
+/* One compact flat header bar — brand carried by the colored mark only. */
 .harness-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  background: linear-gradient(135deg, #00ADE4 0%, #0052CC 100%);
-  border-bottom: 1px solid rgba(0,0,0,0.15);
+  height: 40px;
+  padding: 0 12px;
+  background: var(--vscode-sideBar-background);
+  border-bottom: 1px solid var(--vscode-panel-border);
 }
 .harness-logo-img {
-  height: 22px;
+  height: 18px;
   width: auto;
   flex-shrink: 0;
-  filter: brightness(0) invert(1);
+  filter: none;                 /* real teal mark, not white-on-blue */
 }
-.harness-subtitle {
+.harness-project {
+  flex: 1 1 auto;          /* fills the bar, pushing Switch + menu to the right */
+  font-size: 11px;
+  color: var(--vscode-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.harness-switch {
+  flex-shrink: 0;
   font-size: 10px;
-  font-weight: 500;
-  color: rgba(255,255,255,0.8);
-  letter-spacing: 0.4px;
-  border-left: 1px solid rgba(255,255,255,0.35);
-  padding-left: 8px;
-  margin-left: 2px;
-  line-height: 1;
-  flex: 1;
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-textLink-foreground);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 4px;
 }
+.harness-switch:hover { text-decoration: underline; }
 .header-menu-btn {
   background: transparent;
   border: none;
-  color: rgba(255,255,255,0.8);
+  color: var(--vscode-descriptionForeground);
   cursor: pointer;
   padding: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 3px;
+  flex-shrink: 0;
   transition: background 0.15s, color 0.15s;
 }
 .header-menu-btn:hover {
-  background: rgba(255,255,255,0.15);
-  color: rgba(255,255,255,1);
+  background: var(--vscode-toolbar-hoverBackground);
+  color: var(--vscode-foreground);
 }
-
-/* ── Project bar ──────────────────────────────────── */
-.project-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 12px;
-  background: var(--vscode-sideBar-background);
-  border-bottom: 1px solid var(--vscode-panel-border);
-}
-.project-bar-text {
-  font-size: 10px;
-  color: var(--vscode-descriptionForeground);
-  opacity: 0.85;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.project-bar-btn {
-  font-size: 9px;
-  font-family: var(--vscode-font-family);
-  color: var(--vscode-textLink-foreground);
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0 0 0 8px;
-  flex-shrink: 0;
-  opacity: 0.8;
-}
-.project-bar-btn:hover { opacity: 1; text-decoration: underline; }
 
 /* ── App menu ─────────────────────────────────────── */
 .menu-scrim {
@@ -2759,12 +2741,19 @@ a[data-action="openUrl"] { cursor: pointer; }
   color: var(--primary);
 }
 
-.theme-enhanced-dark .harness-subtitle, .theme-enhanced-light .harness-subtitle {
-  font-size: 10px;
-  color: var(--outline);
+.theme-enhanced-dark .harness-project, .theme-enhanced-light .harness-project {
+  font-size: 11px;
+  color: var(--fg-1);
   font-family: var(--font-mono);
-  margin-left: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
+.theme-enhanced-dark .harness-project, .theme-enhanced-light .harness-project { flex: 1 1 auto; }
+.theme-enhanced-dark .harness-switch, .theme-enhanced-light .harness-switch {
+  flex-shrink: 0;
+  font-size: 10px; font-family: var(--font-sans);
+  color: var(--accent); background: none; border: none; cursor: pointer; padding: 0 4px;
+}
+.theme-enhanced-dark .harness-switch:hover, .theme-enhanced-light .harness-switch:hover { text-decoration: underline; }
 
 .theme-enhanced-dark .header-account, .theme-enhanced-light .header-account {
   font-size: 10px;
