@@ -3911,8 +3911,9 @@ a[data-action="openUrl"] { cursor: pointer; }
 .theme-enhanced .rs-ign { background: var(--warn); }   /* ignoreFailed = amber (matches Executions badge) */
 .theme-enhanced .rs-err { background: var(--err); }
 .theme-enhanced .rs-run { background: var(--accent); animation: pulse 1.5s infinite; }
-.theme-enhanced .rs-wait { background: var(--warn); }
-.theme-enhanced .rs-abort { background: color-mix(in oklch, var(--fg-3) 70%, var(--err) 30%); opacity: 1; }
+.theme-enhanced .rs-wait { background: oklch(70% 0.17 300); }   /* approval/waiting = purple (distinct from running-blue) */
+.theme-enhanced .rs-expired { background: oklch(68% 0.15 55); }        /* expired = orange */
+.theme-enhanced .rs-abort { background: var(--fg-3); opacity: 0.6; }   /* aborted = muted grey */
 .theme-enhanced .rs-pend { background: var(--bg-3); }
 
 
@@ -4032,8 +4033,9 @@ a[data-action="openUrl"] { cursor: pointer; }
 .rs-ign { background: var(--vscode-charts-yellow, #e2b714); }   /* ignoreFailed = amber (matches Executions badge) */
 .rs-err { background: var(--vscode-testing-iconFailed, var(--vscode-errorForeground, oklch(62% 0.18 28))); }
 .rs-run { background: var(--vscode-charts-blue, var(--vscode-textLink-foreground)); }
-.rs-wait { background: var(--vscode-charts-yellow, oklch(74% 0.13 75)); }
-.rs-abort { background: var(--vscode-charts-purple, #8250df); opacity: 0.8; }   /* distinct muted tile, not grey */
+.rs-wait { background: var(--vscode-charts-purple, #8250df); }   /* approval/waiting = purple (needs a human) */
+.rs-expired { background: var(--vscode-charts-orange, #cc6d00); }   /* expired = orange (timed out) */
+.rs-abort { background: var(--vscode-descriptionForeground, #6c757d); opacity: 0.55; }   /* aborted = muted grey (stopped) */
 .rs-pend { background: var(--vscode-panel-border); }
 
 /* ══════════════════════════════════════════════════════════════════

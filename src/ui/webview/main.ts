@@ -2363,7 +2363,8 @@ function pipelineRow(p: PipelineItem): string {
                   : st === 'FAILED' ? 'rs-err'
                   : st === 'RUNNING' || st === 'ASYNC_WAITING' ? 'rs-run'
                   : st === 'APPROVALWAITING' || st === 'WAITING' || st === 'INTERVENTIONWAITING' ? 'rs-wait'
-                  : st === 'ABORTED' || st === 'EXPIRED' ? 'rs-abort'
+                  : st === 'EXPIRED' ? 'rs-expired'
+                  : st === 'ABORTED' ? 'rs-abort'
                   : 'rs-pend';
     const isLatest = idx === runHistory.length - 1;
     const title = `${titleCase(st)} · ${timeAgo(e.startTs)}`;
