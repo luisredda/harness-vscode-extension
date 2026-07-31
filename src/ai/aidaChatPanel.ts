@@ -89,38 +89,24 @@ function focusChatInput(panel: vscode.WebviewPanel): void {
   panel.webview.postMessage({ type: 'FOCUS_INPUT' });
 }
 
-export async function openAidaChatPanel(
+/** Teal Harness diamond in the editor tab (works on light + dark tab bars). */
+function setHarnessAiPanelIcon(panel: vscode.WebviewPanel, extensionUri: vscode.Uri): void {
+  const icons = vscode.Uri.joinPath(extensionUri, 'icons');
+  const diamond = vscode.Uri.joinPath(icons, 'harness-icon.png');
+  panel.iconPath = { light: diamond, dark: diamond };
+}
+
+/** Wire HTML, message handlers, and initial host→webview messages for a panel. */
+async function initAidaChatPanel(
   vsContext: vscode.ExtensionContext,
   configManager: ConfigManager,
+  panel: vscode.WebviewPanel,
   chatContext?: IntelligenceChatContext,
+  options?: { focusInput?: boolean },
 ): Promise<void> {
-  if (activePanel.panel) {
-    activePanel.panel.reveal(vscode.ViewColumn.Two, false);
-    // Update context even if panel already open — send new context to webview
-    if (chatContext?.currentUrl || chatContext?.initialPrompt) {
-      activePanel.panel.webview.postMessage({ type: 'SET_CONTEXT', context: chatContext });
-    }
-    focusChatInput(activePanel.panel);
-    return;
-  }
-
+  setHarnessAiPanelIcon(panel, vsContext.extensionUri);
   const cfg = await buildConfig(configManager);
 
-  const panel = vscode.window.createWebviewPanel(
-    'harnessIntelligenceChat',
-    'Harness AI Chat',
-    { viewColumn: vscode.ViewColumn.Two, preserveFocus: false },
-    {
-      enableScripts: true,
-      retainContextWhenHidden: true,
-      localResourceRoots: [],
-    }
-  );
-
-  activePanel.panel = panel;
-  panel.onDidDispose(() => { activePanel.panel = undefined; });
-
-  // Load the bundled marked parser so the webview can render full markdown.
   let markedScript = '';
   try {
     markedScript = fs.readFileSync(path.join(vsContext.extensionPath, 'dist', 'marked.js'), 'utf8');
@@ -131,6 +117,21 @@ export async function openAidaChatPanel(
   panel.webview.html = buildHtml(panel, cfg, chatContext, markedScript);
 
   panel.webview.onDidReceiveMessage(async (msg) => {
+    if (msg.type === 'CHAT_WEBVIEW_READY') {
+      void fetchSelectedConnectorIds(cfg).then((ids) => {
+        panel.webview.postMessage({
+          type: 'MCP_CONNECTOR_STATUS',
+          count: ids.length,
+          connectors: ids,
+          org: cfg.orgId,
+          project: cfg.projectId,
+        });
+      });
+      if (chatContext?.currentUrl || chatContext?.initialPrompt) {
+        panel.webview.postMessage({ type: 'SET_CONTEXT', context: chatContext });
+      }
+      return;
+    }
     if (msg.type === 'SEND_MESSAGE') {
       await handleSendMessage(panel, cfg, msg.prompt, msg.conversationId, msg.module, msg.currentUrl, msg.systemEvent);
     } else if (msg.type === 'SUBMIT_FEEDBACK') {
@@ -192,28 +193,62 @@ export async function openAidaChatPanel(
     }
   }, undefined, vsContext.subscriptions);
 
-  // Send initial context after webview is ready
-  if (chatContext?.currentUrl || chatContext?.initialPrompt) {
-    setTimeout(() => {
-      panel.webview.postMessage({ type: 'SET_CONTEXT', context: chatContext });
-    }, 150);
+  if (options?.focusInput !== false) {
+    setTimeout(() => focusChatInput(panel), 150);
+  }
+}
+
+/** Restore Harness AI panel tabs after a window reload (like Claude Code chat). */
+export function registerAidaChatPanelSerializer(
+  vsContext: vscode.ExtensionContext,
+  configManager: ConfigManager,
+): void {
+  vsContext.subscriptions.push(
+    vscode.window.registerWebviewPanelSerializer('harnessIntelligenceChat', {
+      async deserializeWebviewPanel(panel) {
+        logger.debug('AidaChatPanel', 'Restoring Harness AI panel after reload');
+        activePanel.panel = panel;
+        panel.onDidDispose(() => { activePanel.panel = undefined; });
+        try {
+          await initAidaChatPanel(vsContext, configManager, panel, undefined, { focusInput: false });
+        } catch (err) {
+          logger.error('AidaChatPanel', 'Failed to restore chat panel:', err);
+        }
+      },
+    }),
+  );
+}
+
+export async function openAidaChatPanel(
+  vsContext: vscode.ExtensionContext,
+  configManager: ConfigManager,
+  chatContext?: IntelligenceChatContext,
+): Promise<void> {
+  if (activePanel.panel) {
+    activePanel.panel.reveal(vscode.ViewColumn.Two, false);
+    // Update context even if panel already open — send new context to webview
+    if (chatContext?.currentUrl || chatContext?.initialPrompt) {
+      activePanel.panel.webview.postMessage({ type: 'SET_CONTEXT', context: chatContext });
+    }
+    focusChatInput(activePanel.panel);
+    return;
   }
 
-  // Check whether this org/project has any MCP connectors selected. If none,
-  // the webview shows a greeting hint so the user understands why external
-  // tools (Jira, GitHub, …) aren't available in this project's chat.
-  void fetchSelectedConnectorIds(cfg).then((ids) => {
-    panel.webview.postMessage({
-      type: 'MCP_CONNECTOR_STATUS',
-      count: ids.length,
-      connectors: ids,
-      org: cfg.orgId,
-      project: cfg.projectId,
-    });
-  });
+  const panel = vscode.window.createWebviewPanel(
+    'harnessIntelligenceChat',
+    'Harness AI',
+    { viewColumn: vscode.ViewColumn.Two, preserveFocus: false },
+    {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+      localResourceRoots: [],
+    }
+  );
 
-  // Focus the input once the webview script is ready.
-  setTimeout(() => focusChatInput(panel), 150);
+  activePanel.panel = panel;
+  panel.onDidDispose(() => { activePanel.panel = undefined; });
+
+  await initAidaChatPanel(vsContext, configManager, panel, chatContext);
 }
 
 // ── Config ─────────────────────────────────────────────────────────────────────
@@ -444,7 +479,7 @@ function buildHtml(_panel: vscode.WebviewPanel, cfg: AidaChatConfig, chatContext
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Harness AI Chat</title>
+<title>Harness AI</title>
 <style nonce="${nonce}">
 ${CSS}
 </style>
@@ -458,6 +493,7 @@ ${GREETING_HTML}
 ${HISTORY_HTML}
 ${INPUT_HTML}
 <div class="ac-disclaimer" id="ac-disclaimer">Harness AI can make mistakes. Check answers.</div>
+<div class="ac-mcp-popover" id="ac-mcp-popover" role="tooltip" aria-hidden="true"></div>
 
 ${markedScript ? `<script nonce="${nonce}">${markedScript}</script>` : ''}
 <script nonce="${nonce}">
@@ -495,12 +531,89 @@ let pendingElicitation = null;
 // When the user removes the pipeline-context chip, we stop sending currentUrl
 // until new context arrives (navigating re-attaches it).
 let contextCleared = false;
+let mcpConnectorCount = 0;
+let mcpConnectors = [];
+let mcpPopoverHideTimer = null;
+let persistTimer = null;
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const messagesEl = document.getElementById('ac-messages');
 const textarea   = document.getElementById('ac-textarea');
 const sendBtn    = document.getElementById('ac-send');
 const form       = document.getElementById('ac-form');
+
+function persistChatState() {
+  const hasGreeting = !!messagesEl.querySelector('.ac-greeting-wrap');
+  const hasMessages = !hasGreeting && messagesEl.childElementCount > 0;
+  vscode.setState({
+    v: 1,
+    conversationId,
+    sessionId,
+    interactionId,
+    currentChatTitle,
+    viewMode,
+    contextCleared,
+    chatContext: {
+      currentUrl: CFG.currentUrl,
+      module: CFG.module,
+      pipelineName: CFG.pipelineName,
+      planExecutionId: CFG.planExecutionId,
+    },
+    hasMessages,
+    // Fallback when the backend hasn't assigned a session id yet.
+    messagesHtml: hasMessages && !sessionId ? messagesEl.innerHTML : undefined,
+  });
+}
+
+function schedulePersistChatState() {
+  clearTimeout(persistTimer);
+  persistTimer = setTimeout(persistChatState, 150);
+}
+
+function restoreFromSavedState(saved) {
+  if (!saved || saved.v !== 1) return false;
+
+  conversationId = saved.conversationId;
+  sessionId = saved.sessionId;
+  interactionId = saved.interactionId;
+  contextCleared = !!saved.contextCleared;
+
+  if (saved.currentChatTitle) setChatTitle(saved.currentChatTitle);
+  else clearChatTitle();
+
+  if (saved.chatContext) {
+    const ctx = saved.chatContext;
+    if (ctx.currentUrl) CFG.currentUrl = ctx.currentUrl;
+    if (ctx.module) CFG.module = ctx.module;
+    if (ctx.pipelineName != null) CFG.pipelineName = ctx.pipelineName;
+    if (ctx.planExecutionId != null) CFG.planExecutionId = ctx.planExecutionId;
+    renderContextChip(ctx.pipelineName, false);
+  }
+
+  if (saved.viewMode === 'history') {
+    showHistoryView();
+    schedulePersistChatState();
+    return true;
+  }
+
+  showChatView();
+  if (saved.sessionId) {
+    messagesEl.innerHTML = '<div class="ac-history-empty">Restoring conversation…</div>';
+    vscode.postMessage({
+      type: 'LOAD_SESSION',
+      sessionId: saved.sessionId,
+      conversationId: saved.conversationId,
+      title: saved.currentChatTitle,
+    });
+  } else if (saved.hasMessages && saved.messagesHtml) {
+    messagesEl.innerHTML = saved.messagesHtml;
+  } else {
+    messagesEl.innerHTML = GREETING_INNER;
+  }
+
+  schedulePersistChatState();
+  return true;
+}
 
 // Platform-aware focus shortcut hint in disclaimer
 (function () {
@@ -528,6 +641,7 @@ document.getElementById('ac-new-chat').addEventListener('click', () => {
   // Hide context chip
   const chip = document.getElementById('ac-context-chip');
   if (chip) chip.style.display = 'none';
+  schedulePersistChatState();
 });
 
 // ── History: overflow menu, view toggle, session list ──────────────────────────
@@ -565,11 +679,13 @@ function setChatTitle(title) {
     const s = allSessions.find(x => x.id === sessionId);
     if (s) s.title = t;
   }
+  schedulePersistChatState();
 }
 
 function clearChatTitle() {
   currentChatTitle = '';
   updateHeaderTitle();
+  schedulePersistChatState();
 }
 
 function showChatView() {
@@ -580,6 +696,7 @@ function showChatView() {
   if (disclaimerEl) disclaimerEl.style.display = '';
   historyBackBtn.style.display = 'none';
   updateHeaderTitle();
+  schedulePersistChatState();
 }
 
 function showHistoryView() {
@@ -592,6 +709,7 @@ function showHistoryView() {
   updateHeaderTitle();
   historyListEl.innerHTML = '<div class="ac-history-empty">Loading…</div>';
   vscode.postMessage({ type: 'LIST_SESSIONS' });
+  schedulePersistChatState();
 }
 
 overflowBtn.addEventListener('click', (e) => {
@@ -603,9 +721,12 @@ document.getElementById('ac-menu-history').addEventListener('click', () => {
   showHistoryView();
 });
 historyBackBtn.addEventListener('click', showChatView);
-// Establish a known baseline on load: chat visible, history hidden, menu closed.
+// Establish baseline view; restore persisted state when reloading the window.
 overflowMenu.style.display = 'none';
-showChatView();
+if (!restoreFromSavedState(vscode.getState())) {
+  showChatView();
+}
+vscode.postMessage({ type: 'CHAT_WEBVIEW_READY' });
 // Dismiss menus on outside click
 document.addEventListener('click', (e) => {
   if (overflowMenu.style.display !== 'none' && !overflowMenu.contains(e.target) && e.target !== overflowBtn && !overflowBtn.contains(e.target)) {
@@ -874,29 +995,93 @@ form.addEventListener('submit', (e) => {
   sendMessage(prompt, conversationId);
 });
 
-// Reflect MCP connector availability for the current project as a small pill
-// beside the input, with an explanatory tooltip. Connectors are per-project, so
-// this tells the user at a glance whether external tools (Jira, GitHub, …) are
-// available here. Hidden entirely if the status is unknown (fetch failed).
+// Reflect MCP connector availability — compact pill (MCP + count) with a
+// fixed-position popover table so long connector lists aren't clipped.
 function renderMcpPill(count, org, project, connectors) {
   const pill = document.getElementById('ac-mcp-pill');
   if (!pill) return;
-  if (count > 0) {
-    const bullets = (connectors || []).map(function (c) { return '•  ' + c; }).join('\\n');
-    pill.className = 'ac-mcp-pill ac-mcp-on';
-    pill.textContent = 'MCP · ' + count + (count === 1 ? ' connector' : ' connectors');
-    pill.setAttribute('data-tooltip', 'Available in this chat:\\n' + bullets);
-  } else {
-    pill.className = 'ac-mcp-pill';
-    pill.textContent = 'MCP · none';
-    pill.setAttribute('data-tooltip', 'No MCP configured in Harness for the current scope.');
-  }
+  mcpConnectorCount = count || 0;
+  mcpConnectors = connectors || [];
+  const n = mcpConnectorCount;
+  pill.className = 'ac-mcp-pill' + (n > 0 ? ' ac-mcp-on' : '');
+  pill.innerHTML =
+    '<span class="ac-mcp-dot" aria-hidden="true"></span>' +
+    '<span class="ac-mcp-label">MCP</span>' +
+    '<span class="ac-mcp-count' + (n === 0 ? ' is-zero' : '') + '">' + n + '</span>';
   pill.style.display = 'inline-flex';
+  pill.setAttribute('aria-label', n > 0 ? n + ' MCP connector' + (n === 1 ? '' : 's') + ' available' : 'No MCP connectors');
 }
 
-// Render the pipeline-context chip in the header. Shows which pipeline the
-// chat is scoped to, with an × to ask without it. The highlight flag briefly
-// pulses the chip when context auto-updates on navigation.
+function buildMcpPopoverHtml(count, connectors) {
+  if (count > 0) {
+    const rows = connectors.map(function (c) {
+      return '<tr><td class="ac-mcp-pop-ico"><span class="ac-mcp-pop-dot"></span></td>' +
+        '<td class="ac-mcp-pop-name">' + esc(c) + '</td></tr>';
+    }).join('');
+    return '<div class="ac-mcp-pop-head">MCP connectors <span class="ac-mcp-pop-badge">' + count + '</span></div>' +
+      '<div class="ac-mcp-pop-sub">Available in this chat</div>' +
+      '<div class="ac-mcp-pop-scroll"><table class="ac-mcp-pop-table"><tbody>' + rows + '</tbody></table></div>';
+  }
+  return '<div class="ac-mcp-pop-head">MCP connectors</div>' +
+    '<div class="ac-mcp-pop-empty">No connectors configured for this project in Harness.</div>';
+}
+
+function hideMcpPopover() {
+  const pop = document.getElementById('ac-mcp-popover');
+  if (!pop) return;
+  pop.classList.remove('is-visible');
+  pop.style.display = 'none';
+  pop.setAttribute('aria-hidden', 'true');
+}
+
+function showMcpPopover(pill) {
+  const pop = document.getElementById('ac-mcp-popover');
+  if (!pop || !pill) return;
+  clearTimeout(mcpPopoverHideTimer);
+  pop.innerHTML = buildMcpPopoverHtml(mcpConnectorCount, mcpConnectors);
+  pop.style.display = 'block';
+  pop.style.visibility = 'hidden';
+  pop.classList.add('is-visible');
+  pop.setAttribute('aria-hidden', 'false');
+
+  const r = pill.getBoundingClientRect();
+  const pr = pop.getBoundingClientRect();
+  let top = r.top - pr.height - 10;
+  let left = r.left;
+  if (top < 8) top = r.bottom + 10;
+  left = Math.max(8, Math.min(left, window.innerWidth - pr.width - 8));
+  top = Math.max(8, Math.min(top, window.innerHeight - pr.height - 8));
+  pop.style.top = top + 'px';
+  pop.style.left = left + 'px';
+  pop.style.visibility = '';
+}
+
+function bindMcpPopover() {
+  const pill = document.getElementById('ac-mcp-pill');
+  const pop = document.getElementById('ac-mcp-popover');
+  if (!pill || !pop) return;
+
+  pill.addEventListener('mouseenter', function () { showMcpPopover(pill); });
+  pill.addEventListener('mouseleave', function () {
+    mcpPopoverHideTimer = setTimeout(hideMcpPopover, 140);
+  });
+  pill.addEventListener('focus', function () { showMcpPopover(pill); });
+  pill.addEventListener('blur', function () {
+    mcpPopoverHideTimer = setTimeout(hideMcpPopover, 140);
+  });
+
+  pop.addEventListener('mouseenter', function () { clearTimeout(mcpPopoverHideTimer); });
+  pop.addEventListener('mouseleave', hideMcpPopover);
+
+  window.addEventListener('scroll', hideMcpPopover, true);
+  window.addEventListener('resize', hideMcpPopover);
+}
+
+bindMcpPopover();
+
+// Render the pipeline-context chip in the input footer (after MCP). Shows which
+// pipeline the chat is scoped to, with an × to clear it. The highlight flag
+// briefly pulses the chip when context auto-updates on navigation.
 function renderContextChip(pipelineName, highlight) {
   const chip = document.getElementById('ac-context-chip');
   if (!chip) return;
@@ -920,6 +1105,7 @@ function renderContextChip(pipelineName, highlight) {
       contextCleared = true;
       chip.style.display = 'none';
       chip.innerHTML = '';
+      schedulePersistChatState();
     });
   }
   if (highlight) {
@@ -928,6 +1114,7 @@ function renderContextChip(pipelineName, highlight) {
     void chip.offsetWidth;
     chip.classList.add('ac-context-flash');
   }
+  schedulePersistChatState();
 }
 
 function sendMessage(prompt, convId, systemEvent) {
@@ -958,6 +1145,7 @@ function sendMessage(prompt, convId, systemEvent) {
     currentUrl: contextCleared ? undefined : CFG.currentUrl,
     systemEvent,
   });
+  schedulePersistChatState();
 }
 
 // ── VS Code message handler ───────────────────────────────────────────────────
@@ -989,9 +1177,12 @@ window.addEventListener('message', (e) => {
     // context even if the user had removed the previous one.
     const changed = ctx.currentUrl !== CFG.currentUrl;
     if (ctx.currentUrl) CFG.currentUrl = ctx.currentUrl;
-    if (ctx.module)     CFG.module     = ctx.module;
+    if (ctx.module) CFG.module = ctx.module;
+    if (ctx.pipelineName != null) CFG.pipelineName = ctx.pipelineName;
+    if (ctx.planExecutionId != null) CFG.planExecutionId = ctx.planExecutionId;
     if (changed) contextCleared = false;
     renderContextChip(ctx.pipelineName, changed);
+    schedulePersistChatState();
     // Pre-fill prompt if supplied
     if (ctx.initialPrompt) {
       textarea.value = ctx.initialPrompt;
@@ -1018,6 +1209,7 @@ window.addEventListener('message', (e) => {
     if (sessionId && !currentChatTitle) {
       vscode.postMessage({ type: 'FETCH_SESSION_TITLE', sessionId });
     }
+    schedulePersistChatState();
     return;
   }
 
@@ -1056,6 +1248,7 @@ window.addEventListener('message', (e) => {
   if (msg.type === 'SESSION_MESSAGES') {
     if (msg.title) setChatTitle(msg.title);
     hydrateFromHistory(msg.messages);
+    schedulePersistChatState();
     return;
   }
 
@@ -1087,6 +1280,7 @@ function handleSseEvent(event, data) {
     sessionId = data.session_id || sessionId;
     interactionId = data.interaction_id || interactionId;
     if (data.title) setChatTitle(data.title);
+    schedulePersistChatState();
     return;
   }
 
@@ -1841,20 +2035,6 @@ body {
   white-space: nowrap;
 }
 .ac-header-title.is-empty { display: none; }
-/* Context chip — shows active pipeline/execution name next to the title */
-.ac-context-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  padding: 2px 4px 2px 8px;
-  border-radius: 10px;
-  background: var(--vscode-badge-background, lch(84% 3.5 272));
-  color: var(--vscode-badge-foreground, lch(13% 10 279));
-  max-width: 220px;
-  margin-left: 4px;
-}
 .ac-context-label {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2468,52 +2648,192 @@ body {
   gap: 8px;
   border-top: 1px solid var(--ac-input-divider);
   padding: 8px 10px 10px 12px;
+  overflow: visible;
+  position: relative;
+  z-index: 2;
+}
+.ac-form-footer-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: visible;
 }
 
-/* MCP connector status pill (bottom-left of the input) */
+/* MCP connector pill — compact "MCP" + count badge */
 .ac-mcp-pill {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   font-size: 11px;
   color: var(--ac-fg-muted);
-  padding: 3px 9px 3px 8px;
+  padding: 3px 8px 3px 7px;
   border: 1px solid var(--ac-border);
   border-radius: 9999px;
   cursor: default;
   user-select: none;
-  max-width: 70%;
   white-space: nowrap;
-  overflow: visible;
+  flex-shrink: 0;
+  outline: none;
 }
-.ac-mcp-pill::before {
-  content: '';
-  width: 6px; height: 6px;
+.ac-mcp-pill:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ac-btn-bg) 35%, transparent);
+}
+.ac-mcp-dot {
+  width: 6px;
+  height: 6px;
   border-radius: 9999px;
   flex-shrink: 0;
   background: var(--ac-fg-dim);
 }
-.ac-mcp-pill.ac-mcp-on::before { background: #3fb950; }
-/* CSS tooltip — native title is unreliable in webviews. Shown above the pill. */
-.ac-mcp-pill[data-tooltip]:hover::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 6px);
-  z-index: 10;
-  max-width: 280px;
-  width: max-content;
-  white-space: pre-line;
-  padding: 6px 9px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--ac-fg);
+.ac-mcp-pill.ac-mcp-on .ac-mcp-dot { background: #3fb950; }
+.ac-mcp-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ac-fg-muted);
+}
+.ac-mcp-count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--ac-btn-bg) 16%, transparent);
+  color: var(--ac-btn-bg);
+  border: 1px solid color-mix(in srgb, var(--ac-btn-bg) 28%, transparent);
+}
+.ac-mcp-count.is-zero {
+  background: var(--ac-hover);
+  color: var(--ac-fg-dim);
+  border-color: var(--ac-border);
+}
+
+/* Fixed popover — escapes the input box; scrollable table for long lists */
+.ac-mcp-popover {
+  position: fixed;
+  z-index: 1000;
+  display: none;
+  min-width: 220px;
+  max-width: min(340px, calc(100vw - 16px));
+  max-height: min(320px, calc(100vh - 16px));
   background: var(--vscode-editorWidget-background, var(--ac-input-bg));
   border: 1px solid var(--ac-border);
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-  pointer-events: none;
+  border-radius: 10px;
+  box-shadow:
+    0 10px 32px rgba(0, 0, 0, 0.28),
+    0 0 0 1px color-mix(in srgb, var(--ac-btn-bg) 10%, transparent);
+  overflow: hidden;
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateY(5px);
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+.ac-mcp-popover.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.ac-mcp-pop-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ac-fg-muted);
+}
+.ac-mcp-pop-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9999px;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ac-btn-bg);
+  background: color-mix(in srgb, var(--ac-btn-bg) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ac-btn-bg) 30%, transparent);
+}
+.ac-mcp-pop-sub {
+  padding: 0 12px 10px;
+  font-size: 11px;
+  color: var(--ac-fg-dim);
+  border-bottom: 1px solid var(--ac-border);
+}
+.ac-mcp-pop-empty {
+  padding: 12px 14px 14px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ac-fg-muted);
+}
+.ac-mcp-pop-scroll {
+  max-height: 240px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.ac-mcp-pop-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.ac-mcp-pop-table tbody tr {
+  border-bottom: 1px solid color-mix(in srgb, var(--ac-border) 65%, transparent);
+  transition: background 0.1s;
+}
+.ac-mcp-pop-table tbody tr:last-child { border-bottom: none; }
+.ac-mcp-pop-table tbody tr:hover { background: var(--ac-hover); }
+.ac-mcp-pop-ico {
+  width: 32px;
+  padding: 0;
+  vertical-align: middle;
+  text-align: center;
+}
+.ac-mcp-pop-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: var(--ac-btn-bg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ac-btn-bg) 18%, transparent);
+}
+.ac-mcp-pop-name {
+  padding: 9px 12px 9px 2px;
+  color: var(--ac-fg);
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+/* Pipeline context chip — highlighted accent pill after MCP */
+.ac-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 4px 3px 9px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--ac-btn-bg) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ac-btn-bg) 42%, transparent);
+  color: var(--ac-btn-bg);
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: min(260px, 58%);
 }
 
 /* ── Send button (circular) / Stop button (rounded square) ──────────────── */
@@ -2705,7 +3025,6 @@ const HEADER_HTML = `<div class="ac-header">
       </svg>
     </button>
     <span class="ac-header-title" id="ac-header-title"></span>
-    <span class="ac-context-chip" id="ac-context-chip" style="display:none"></span>
   </div>
   <div class="ac-header-actions">
     <button class="ac-icon-btn" id="ac-new-chat" title="New chat">
@@ -2748,12 +3067,15 @@ const INPUT_HTML = `<div class="ac-input-wrapper">
       <textarea
         class="ac-textarea"
         id="ac-textarea"
-        placeholder="Ask Harness AI Chat…"
+        placeholder="Ask Harness AI…"
         rows="1"
       ></textarea>
     </div>
     <div class="ac-form-footer">
-      <span class="ac-mcp-pill" id="ac-mcp-pill" style="display:none"></span>
+      <div class="ac-form-footer-pills">
+        <span class="ac-mcp-pill" id="ac-mcp-pill" style="display:none" tabindex="0"></span>
+        <span class="ac-context-chip" id="ac-context-chip" style="display:none"></span>
+      </div>
       <button class="ac-send" id="ac-send" type="submit" disabled title="Send">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 16 16" width="14" height="14">
           <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M8 14V2M2.333 7.667 8 2l5.667 5.667"/>

@@ -19,7 +19,7 @@ import { initFmeClient, destroyFmeClient, getLogViewerVariation } from './fme/fm
 import { LogContentProvider, LOG_SCHEME } from './logs/logContentProvider';
 import { openLogAsEditorTab } from './logs/logEditorTab';
 import { openAgentChatTab, isAgentLog } from './logs/agentChatTab';
-import { openAidaChatPanel, updateActiveChatContext, type IntelligenceChatContext } from './ai/aidaChatPanel';
+import { openAidaChatPanel, registerAidaChatPanelSerializer, updateActiveChatContext, type IntelligenceChatContext } from './ai/aidaChatPanel';
 import { detectAITools } from './ai/detector';
 import { configureMCP, configureCopilotMCP } from './ai/mcpConfigurer';
 import { buildPrompt } from './ai/promptBuilder';
@@ -42,6 +42,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   logger.initialize(outputChannel);
 
   context.subscriptions.push(diagnostics, statusBar, outputChannel);
+
+  registerAidaChatPanelSerializer(context, configManager);
 
   // Helper to get/set AI tool preference
   const getAIToolPreference = (): string | undefined => {
