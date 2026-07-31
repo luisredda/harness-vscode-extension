@@ -133,7 +133,7 @@ body {
 .theme-enhanced .vt {
   display: flex; align-items: stretch;
   height: 44px;             /* taller so labels center with breathing room */
-  margin-top: 16px;         /* real gap under the header bar */
+  margin-top: 12px;         /* gap under the header separator */
   margin-bottom: 2px;
   background: var(--bg-1);
   border-bottom: 1px solid var(--line);
@@ -177,6 +177,16 @@ body {
 }
 .theme-enhanced .vt-pin:hover { color: var(--fg-1); }
 .theme-enhanced .vt-pin.on { color: var(--accent); }
+
+/* Live enhanced header — space-form selector (not .theme-enhanced-dark) */
+.theme-enhanced .harness-header {
+  height: 50px;
+  min-height: 50px;
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  background: var(--bg-0);
+  border-bottom: 1px solid var(--line);
+}
 
 /* ── Git Bar ─────────────────────────────────────────────────────── */
 .theme-enhanced .git-bar {
@@ -1047,12 +1057,17 @@ body {
    ══════════════════════════════════════════════════════════════ */
 
 /* ── Harness header ───────────────────────────────── */
-/* One compact flat header bar — brand carried by the colored mark only. */
+/* One compact flat header bar — brand carried by the colored mark only.
+   flex-shrink:0 + min-height keep the bar from compressing when the panel
+   footer (AI split launcher) and scroll content compete for height. */
 .harness-header {
   display: flex;
   align-items: center;
   gap: 10px;
   height: 50px;
+  min-height: 50px;
+  flex: 0 0 auto;
+  flex-shrink: 0;
   padding: 0 14px;
   background: var(--vscode-sideBar-background);
   border-bottom: 1px solid var(--vscode-panel-border);
