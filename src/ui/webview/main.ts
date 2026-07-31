@@ -41,6 +41,7 @@ function getStateFingerprint(): string {
     state.aiDestination,
     state.aiState,
     state.aiOverlay || '',
+    state.activeDetailTab,
   ];
 
   // Add execution state with detailed stage/step tracking
@@ -192,7 +193,7 @@ interface DeployStage {
   blocked?: boolean;
   skipReason?: string;
   services: { name: string; identifier?: string; version: string; kind: string; manifests?: string[] }[];
-  envs: { name: string; infraName?: string; type?: string; status: string; deployedAt?: string }[];
+  envs: { name: string; infraName?: string; type?: string; status: string; deployedAt?: string; url?: string }[];
 }
 
 interface UnitProgress {
@@ -3026,6 +3027,40 @@ function buildTabBody(ex: ExecState): string {
 }
 
 // ── Deploy (CD) tab ────────────────────────────────────────────────────────
+/** Parse account/org/project scope from a Harness execution URL. */
+function parseHarnessProjectScope(harnessUrl?: string): {
+  baseUrl: string; accountId: string; orgId: string; projectId: string;
+} | undefined {
+  if (!harnessUrl) return undefined;
+  const m = harnessUrl.match(
+    /^(https?:\/\/[^/]+)\/ng\/account\/([^/]+)\/all\/orgs\/([^/]+)\/projects\/([^/]+)/
+  );
+  if (!m) return undefined;
+  return { baseUrl: m[1], accountId: m[2], orgId: m[3], projectId: m[4] };
+}
+
+/** Environment settings deep-link (issue #16).
+ *  …/all/orgs/{org}/projects/{project}/settings/environments/{envName}/details?sectionId=SUMMARY */
+function deployEnvironmentUrl(ex: ExecState, envName: string): string | undefined {
+  if (!envName) return undefined;
+
+  const scope = parseHarnessProjectScope(ex.harnessUrl);
+  const orgId = state.org ?? scope?.orgId;
+  const projectId = state.project ?? scope?.projectId;
+  const accountId = scope?.accountId
+    ?? ex.harnessUrl?.match(/\/account\/([^/]+)/)?.[1];
+  const baseUrl = scope?.baseUrl ?? ex.harnessUrl?.match(/^(https?:\/\/[^/]+)/)?.[1];
+  if (!baseUrl || !accountId || !orgId || !projectId) return undefined;
+
+  // Harness env identifiers in URLs are bare ids (no org./account. prefix).
+  let envId = envName;
+  if (envId.startsWith('org.')) envId = envId.slice(4);
+  else if (envId.startsWith('account.')) envId = envId.slice(8);
+  else if (envId.startsWith('_project_')) envId = envId.slice(9);
+
+  return `${baseUrl}/ng/account/${accountId}/all/orgs/${encodeURIComponent(orgId)}/projects/${encodeURIComponent(projectId)}/settings/environments/${encodeURIComponent(envId)}/details?sectionId=SUMMARY`;
+}
+
 function parseDeploy(ex: ExecState): DeployStage[] {
   const map = ex.layoutNodeMap ?? {};
   const S: Record<string, DeployStage['status']> = {
@@ -3059,6 +3094,7 @@ function parseDeploy(ex: ExecState): DeployStage[] {
           type: infra.type,
           status: rawStatus === 'SUCCESS' ? 'ok' : status,
           deployedAt: n.endTs ? ago(n.endTs) : undefined,
+          url: deployEnvironmentUrl(ex, String(infra.name ?? infra.identifier ?? '')),
         }] : [],
       };
     });
@@ -3099,11 +3135,14 @@ function deployTabBody(ex: ExecState): string {
     const envs = s.envs.map(e => {
       const meta = [e.type, e.infraName].filter(Boolean).map(x => esc(x as string)).join(' · ');
       const when = e.deployedAt ? `<span class="tb-env-at">${esc(e.deployedAt)}</span>` : '';
+      const ext = e.url
+        ? `<a class="tb-env-ext" data-action="openUrl" data-url="${esc(e.url)}" aria-label="Open environment in Harness">${EXT_LINK}</a>`
+        : '';
       return `<div class="tb-env">
         <span class="tb-env-dot is-${e.status}"></span>
         <span class="tb-env-name">${esc(e.name)}</span>
         <span class="tb-env-meta">${meta}</span>${when}
-        <span class="tb-env-ext" aria-label="Open environment">${EXT_LINK}</span>
+        ${ext}
       </div>`;
     }).join('');
 
@@ -3913,7 +3952,7 @@ function opaRow(ex: ExecState): string {
   }).join('');
 
   const tooltip = details.length
-    ? `<div class="opa-tooltip"><div class="opa-tt-header">Policy Evaluations</div>${tooltipRows}</div>`
+    ? `<div class="opa-tooltip"><div class="opa-tt-header">Policy Evaluations</div><div class="opa-tt-list">${tooltipRows}</div></div>`
     : '';
 
   const url = o.policyUrl ?? ex.harnessUrl;
@@ -4149,6 +4188,72 @@ function togglePin(): void {
   }
 
   scheduleRender();
+}
+
+// Position OPA policy tooltip with position:fixed so it escapes .panel-scroll
+// clipping (issue #15). Opens below the row when room allows, else above.
+function bindOpaTooltips(): void {
+  const GAP = 8;
+  const MIN_H = 100;
+  const MAX_H = 320;
+
+  document.querySelectorAll<HTMLElement>('.opa-tooltip-anchor').forEach(anchor => {
+    const tip = anchor.querySelector('.opa-tooltip') as HTMLElement | null;
+    if (!tip) return;
+
+    let hideTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const reset = () => {
+      tip.style.cssText = '';
+    };
+
+    const show = () => {
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+
+      tip.style.display = 'flex';
+      tip.style.position = 'fixed';
+      tip.style.visibility = 'hidden';
+      tip.style.zIndex = '1000';
+      tip.style.maxWidth = '320px';
+      tip.style.minWidth = '260px';
+
+      const rect = anchor.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom - GAP - 12;
+      const spaceAbove = rect.top - GAP - 12;
+      const openBelow = spaceBelow >= MIN_H || spaceBelow >= spaceAbove;
+      const maxH = Math.min(MAX_H, Math.max(MIN_H, openBelow ? spaceBelow : spaceAbove));
+
+      tip.style.maxHeight = `${maxH}px`;
+
+      // Measure width after display so left clamping is accurate
+      const tipW = tip.offsetWidth || 280;
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - tipW - 8));
+      tip.style.left = `${left}px`;
+
+      if (openBelow) {
+        tip.style.top = `${rect.bottom + GAP}px`;
+        tip.style.bottom = 'auto';
+      } else {
+        tip.style.top = 'auto';
+        tip.style.bottom = `${window.innerHeight - rect.top + GAP}px`;
+      }
+
+      tip.style.visibility = '';
+    };
+
+    const scheduleHide = () => {
+      hideTimer = setTimeout(reset, 120);
+    };
+
+    const cancelHide = () => {
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    };
+
+    anchor.addEventListener('mouseenter', show);
+    anchor.addEventListener('mouseleave', scheduleHide);
+    tip.addEventListener('mouseenter', cancelHide);
+    tip.addEventListener('mouseleave', scheduleHide);
+  });
 }
 
 // ── Bind ───────────────────────────────────────────────────────────────────
@@ -4834,6 +4939,8 @@ export HARNESS_ACCOUNT_ID=xxxxx`;
   });
 
   } // end AI event delegation setup
+
+  bindOpaTooltips();
 }
 
 function q(sel: string, handler: () => void): void {

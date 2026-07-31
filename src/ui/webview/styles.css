@@ -707,7 +707,7 @@ body {
 .theme-enhanced .tb-env-name { font-weight:600; color:var(--fg-1); }
 .theme-enhanced .tb-env-meta { color:var(--fg-3); font-size:10px; flex:1; }
 .theme-enhanced .tb-env-at { color:var(--fg-3); font-size:10px; flex-shrink:0; }
-.theme-enhanced .tb-env-ext { color:var(--fg-3); display:inline-flex; align-items:center; flex-shrink:0; margin-left:6px; cursor:pointer; }
+.theme-enhanced .tb-env-ext { color:var(--fg-3); display:inline-flex; align-items:center; flex-shrink:0; margin-left:6px; cursor:pointer; text-decoration:none; }
 .theme-enhanced .tb-env-ext:hover { color:var(--accent); }
 
 /* ── Approval Card (Amber Palette) ───────────────────────────────── */
@@ -2450,27 +2450,23 @@ a[data-action="openUrl"] { cursor: pointer; }
 }
 .opa-row-counts { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 
-/* OPA HTML tooltip */
+/* OPA HTML tooltip — position set in JS (fixed) to escape scroll clipping */
 .opa-tooltip-anchor { position: relative; cursor: default; }
 .opa-tooltip {
   display: none;
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
+  flex-direction: column;
   min-width: 260px;
   max-width: 320px;
   background: var(--vscode-editorWidget-background);
   border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.35);
-  z-index: 100;
-  pointer-events: none;
+  z-index: 1000;
+  pointer-events: none; /* pass clicks through to module tabs below */
   font-size: 11px;
-  overflow: hidden;
 }
-.opa-tooltip-anchor:hover .opa-tooltip { display: block; }
 .opa-tt-header {
+  flex-shrink: 0;
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
@@ -2478,6 +2474,11 @@ a[data-action="openUrl"] { cursor: pointer; }
   color: var(--vscode-descriptionForeground);
   padding: 6px 10px 5px;
   border-bottom: 1px solid var(--vscode-panel-border);
+}
+.opa-tt-list {
+  overflow-y: auto;
+  min-height: 0;
+  pointer-events: auto; /* scrollable body still receives hover/scroll */
 }
 .opa-tt-row {
   display: flex;
@@ -2511,6 +2512,20 @@ a[data-action="openUrl"] { cursor: pointer; }
 .opa-count-dim  { color: var(--vscode-descriptionForeground); opacity: 0.6; }
 .opa-link { margin-left: auto; color: var(--vscode-textLink-foreground); font-size: 11px; cursor: pointer; text-decoration: none; flex-shrink: 0; }
 .opa-link:hover { text-decoration: underline; }
+
+.theme-enhanced .opa-tooltip {
+  background: var(--bg-2);
+  border-color: var(--line-2);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
+}
+.theme-enhanced .opa-tt-header {
+  color: var(--fg-2);
+  border-bottom-color: var(--line);
+}
+.theme-enhanced .opa-tt-row { border-bottom-color: var(--line); }
+.theme-enhanced .opa-tt-name { color: var(--fg-0); }
+.theme-enhanced .opa-tt-msg { color: var(--fg-2); }
+.theme-enhanced .opa-row { overflow: visible; }
 
 /* ── FF section ───────────────────────────────────── */
 .ff-card {
