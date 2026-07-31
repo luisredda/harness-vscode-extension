@@ -84,6 +84,11 @@ export function updateActiveChatContext(chatContext: IntelligenceChatContext): v
   activePanel.panel.webview.postMessage({ type: 'SET_CONTEXT', context: chatContext });
 }
 
+/** Focus the chat input (used by keyboard shortcut when panel is already open). */
+function focusChatInput(panel: vscode.WebviewPanel): void {
+  panel.webview.postMessage({ type: 'FOCUS_INPUT' });
+}
+
 export async function openAidaChatPanel(
   vsContext: vscode.ExtensionContext,
   configManager: ConfigManager,
@@ -95,6 +100,7 @@ export async function openAidaChatPanel(
     if (chatContext?.currentUrl || chatContext?.initialPrompt) {
       activePanel.panel.webview.postMessage({ type: 'SET_CONTEXT', context: chatContext });
     }
+    focusChatInput(activePanel.panel);
     return;
   }
 
@@ -169,6 +175,17 @@ export async function openAidaChatPanel(
       } catch (err) {
         panel.webview.postMessage({ type: 'SESSIONS_ERROR', error: err instanceof Error ? err.message : String(err) });
       }
+    } else if (msg.type === 'FETCH_SESSION_TITLE') {
+      try {
+        const sessions = await fetchSessions(cfg);
+        const match = (sessions as { id?: string; title?: string }[])
+          .find(s => s.id === msg.sessionId);
+        if (match?.title) {
+          panel.webview.postMessage({ type: 'SESSION_TITLE', title: match.title });
+        }
+      } catch (err) {
+        logger.warn('AidaChatPanel', 'Could not fetch session title', err);
+      }
     } else if (msg.type === 'COPY_CONVERSATION_ID') {
       await vscode.env.clipboard.writeText(msg.conversationId || '');
       vscode.window.showInformationMessage('Conversation ID copied to clipboard.');
@@ -194,6 +211,9 @@ export async function openAidaChatPanel(
       project: cfg.projectId,
     });
   });
+
+  // Focus the input once the webview script is ready.
+  setTimeout(() => focusChatInput(panel), 150);
 }
 
 // ── Config ─────────────────────────────────────────────────────────────────────
@@ -482,8 +502,18 @@ const textarea   = document.getElementById('ac-textarea');
 const sendBtn    = document.getElementById('ac-send');
 const form       = document.getElementById('ac-form');
 
+// Platform-aware focus shortcut hint in disclaimer
+(function () {
+  const disc = document.getElementById('ac-disclaimer');
+  if (disc) {
+    const mod = /Mac|iPhone|iPad/i.test(navigator.platform) ? '⌘' : 'Ctrl+';
+    disc.textContent = 'Harness AI can make mistakes. Check answers. · ' + mod + '⇧H to focus';
+  }
+})();
+
 // ── New chat reset ────────────────────────────────────────────────────────────
 document.getElementById('ac-new-chat').addEventListener('click', () => {
+  clearChatTitle();
   showChatView();
   conversationId = undefined;
   sessionId = undefined;
@@ -512,23 +542,54 @@ const inputWrapEl      = document.querySelector('.ac-input-wrapper');
 const disclaimerEl     = document.getElementById('ac-disclaimer');
 let allSessions = [];        // cached session list
 let openRowMenu = null;      // currently open per-row menu element
+let currentChatTitle = '';
+let viewMode = 'chat';       // 'chat' | 'history'
+
+function updateHeaderTitle() {
+  if (!headerTitleEl) return;
+  if (viewMode === 'history') {
+    headerTitleEl.textContent = 'History';
+    headerTitleEl.classList.remove('is-empty');
+    return;
+  }
+  headerTitleEl.textContent = currentChatTitle;
+  headerTitleEl.classList.toggle('is-empty', !currentChatTitle);
+}
+
+function setChatTitle(title) {
+  const t = (title || '').trim();
+  if (!t) return;
+  currentChatTitle = t;
+  updateHeaderTitle();
+  if (sessionId) {
+    const s = allSessions.find(x => x.id === sessionId);
+    if (s) s.title = t;
+  }
+}
+
+function clearChatTitle() {
+  currentChatTitle = '';
+  updateHeaderTitle();
+}
 
 function showChatView() {
+  viewMode = 'chat';
   historyEl.style.display = 'none';
   messagesEl.style.display = '';
   if (inputWrapEl) inputWrapEl.style.display = '';
   if (disclaimerEl) disclaimerEl.style.display = '';
   historyBackBtn.style.display = 'none';
-  headerTitleEl.textContent = '';
+  updateHeaderTitle();
 }
 
 function showHistoryView() {
+  viewMode = 'history';
   messagesEl.style.display = 'none';
   if (inputWrapEl) inputWrapEl.style.display = 'none';
   if (disclaimerEl) disclaimerEl.style.display = 'none';
   historyEl.style.display = 'flex';
   historyBackBtn.style.display = '';
-  headerTitleEl.textContent = 'History';
+  updateHeaderTitle();
   historyListEl.innerHTML = '<div class="ac-history-empty">Loading…</div>';
   vscode.postMessage({ type: 'LIST_SESSIONS' });
 }
@@ -672,6 +733,7 @@ function openSession(session) {
   conversationId = session.conversation_id || undefined;
   sessionId = session.id || undefined;
   interactionId = undefined;
+  setChatTitle(session.title || '');
   messagesEl.innerHTML = '<div class="ac-history-empty">Loading conversation…</div>';
   vscode.postMessage({ type: 'LOAD_SESSION', sessionId: session.id, conversationId: session.conversation_id, title: session.title });
 }
@@ -902,6 +964,12 @@ function sendMessage(prompt, convId, systemEvent) {
 window.addEventListener('message', (e) => {
   const msg = e.data;
 
+  if (msg.type === 'FOCUS_INPUT') {
+    showChatView();
+    textarea.focus();
+    return;
+  }
+
   if (msg.type === 'SET_PROMPT') {
     textarea.value = msg.prompt;
     sendBtn.disabled = false;
@@ -947,6 +1015,14 @@ window.addEventListener('message', (e) => {
     isStreaming = false;
     finalizeAssistant();
     setSendState(false);
+    if (sessionId && !currentChatTitle) {
+      vscode.postMessage({ type: 'FETCH_SESSION_TITLE', sessionId });
+    }
+    return;
+  }
+
+  if (msg.type === 'SESSION_TITLE') {
+    setChatTitle(msg.title);
     return;
   }
 
@@ -978,6 +1054,7 @@ window.addEventListener('message', (e) => {
   }
 
   if (msg.type === 'SESSION_MESSAGES') {
+    if (msg.title) setChatTitle(msg.title);
     hydrateFromHistory(msg.messages);
     return;
   }
@@ -985,6 +1062,7 @@ window.addEventListener('message', (e) => {
   if (msg.type === 'SESSION_RENAMED') {
     const s = allSessions.find(x => x.id === msg.sessionId);
     if (s) s.title = msg.title;
+    if (sessionId === msg.sessionId) setChatTitle(msg.title);
     renderSessions(allSessions);
     return;
   }
@@ -996,6 +1074,7 @@ window.addEventListener('message', (e) => {
     if (sessionId === msg.sessionId) {
       conversationId = undefined;
       sessionId = undefined;
+      clearChatTitle();
       messagesEl.innerHTML = GREETING_INNER;
     }
     return;
@@ -1003,10 +1082,17 @@ window.addEventListener('message', (e) => {
 });
 
 function handleSseEvent(event, data) {
-  if (event === 'stream_metadata' && data && data.conversation_id) {
-    if (!conversationId) conversationId = data.conversation_id;
+  if (event === 'stream_metadata' && data) {
+    if (data.conversation_id && !conversationId) conversationId = data.conversation_id;
     sessionId = data.session_id || sessionId;
     interactionId = data.interaction_id || interactionId;
+    if (data.title) setChatTitle(data.title);
+    return;
+  }
+
+  if ((event === 'session_title' || event === 'title') && data) {
+    const t = typeof data === 'string' ? data : (data.title || data.v || '');
+    if (t) setChatTitle(t);
     return;
   }
 
@@ -1690,6 +1776,8 @@ const CSS = `
 
   /* Reasoning/thinking block left border */
   --ac-reasoning-border: lch(87% 1 272);
+  /* Input footer divider — subtle neutral grey (Claude-style) */
+  --ac-input-divider: lch(88% 1.5 272);
 
   /* Input form border gradient property — updated by @keyframes ac-spin */
   --ac-angle: 131deg;
@@ -1708,6 +1796,7 @@ const CSS = `
   --ac-bubble-to:   lch(25% 8  272 / 0.25);
 
   --ac-reasoning-border: lch(30% 3 275);
+  --ac-input-divider: lch(32% 3.5 275);
 }
 
 /* ── Reset ───────────────────────────────────────────────────────────────── */
@@ -1746,7 +1835,12 @@ body {
   font-size: 14px;
   font-weight: 600;
   color: var(--ac-fg);
+  max-width: min(380px, 42vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.ac-header-title.is-empty { display: none; }
 /* Context chip — shows active pipeline/execution name next to the title */
 .ac-context-chip {
   display: inline-flex;
@@ -2301,12 +2395,16 @@ body {
   background: linear-gradient(var(--ac-input-bg), var(--ac-input-bg)) padding-box,
               linear-gradient(var(--ac-border), var(--ac-border)) border-box;
   border: 1.5px solid transparent;
-  border-radius: var(--ac-radius-pill);
-  padding: 12px 12px 10px 14px;
+  border-radius: 12px;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  overflow: hidden;
   transition: box-shadow 0.3s ease;
+}
+
+.ac-form-body {
+  padding: 12px 14px 10px;
 }
 
 /* Hover: conic gradient preview (static, no spin yet) */
@@ -2368,6 +2466,8 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  border-top: 1px solid var(--ac-input-divider);
+  padding: 8px 10px 10px 12px;
 }
 
 /* MCP connector status pill (bottom-left of the input) */
@@ -2518,8 +2618,11 @@ body {
 .ac-history-list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 8px 12px;
+  padding: 4px 12px 12px;
   scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .ac-history-item {
   position: relative;
@@ -2527,24 +2630,32 @@ body {
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 10px;
-  border-radius: 8px;
+  padding: 12px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--ac-border);
+  background: var(--ac-input-bg);
   cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
 }
-.ac-history-item:hover { background: var(--ac-hover); }
+.ac-history-item:hover {
+  background: var(--ac-hover);
+  border-color: color-mix(in srgb, var(--ac-border) 70%, var(--ac-fg-muted));
+}
 .ac-history-item-main { min-width: 0; flex: 1; }
 .ac-history-item-title {
-  font-size: 13.5px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--ac-fg);
-  white-space: nowrap;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 .ac-history-item-time {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--ac-fg-dim);
-  margin-top: 2px;
+  margin-top: 4px;
 }
 .ac-history-item-menu-btn {
   flex-shrink: 0;
@@ -2633,12 +2744,14 @@ const GREETING_HTML = `<div class="ac-greeting-wrap">
 
 const INPUT_HTML = `<div class="ac-input-wrapper">
   <form class="ac-form" id="ac-form">
-    <textarea
-      class="ac-textarea"
-      id="ac-textarea"
-      placeholder="Ask Harness AI Chat…"
-      rows="1"
-    ></textarea>
+    <div class="ac-form-body">
+      <textarea
+        class="ac-textarea"
+        id="ac-textarea"
+        placeholder="Ask Harness AI Chat…"
+        rows="1"
+      ></textarea>
+    </div>
     <div class="ac-form-footer">
       <span class="ac-mcp-pill" id="ac-mcp-pill" style="display:none"></span>
       <button class="ac-send" id="ac-send" type="submit" disabled title="Send">

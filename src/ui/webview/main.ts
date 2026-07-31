@@ -452,10 +452,10 @@ function calculatePageSize(): number {
  * Decision table:
  *   FF treatment  | IDE theme           | Result
  *   ------------- | ------------------- | -----------------------
- *   enhanced      | Dark (2)            | .theme-enhanced-dark
- *   enhanced      | Light (1)           | .theme-enhanced-light
- *   enhanced      | HighContrast (3)    | .theme-enhanced-dark
- *   enhanced      | HC Light (4)        | .theme-enhanced-light
+ *   enhanced      | Dark (2)            | .theme-enhanced.theme-dark
+ *   enhanced      | Light (1)           | .theme-enhanced.theme-light
+ *   enhanced      | HighContrast (3)    | .theme-enhanced.theme-dark
+ *   enhanced      | HC Light (4)        | .theme-enhanced.theme-light
  *   simple        | any                 | .theme-simple
  */
 function applyEffectiveTheme(): void {
@@ -563,6 +563,8 @@ window.addEventListener('message', ({ data: msg }) => {
         state.aiChatEnabled = msg.aiChatEnabled;
         console.log('[Webview] AI chat enabled:', state.aiChatEnabled);
       }
+
+      applyEffectiveTheme();
 
       // If org/project changed, clear state and refetch data
       if (orgChanged || projectChanged) {
@@ -1676,7 +1678,20 @@ function build(): string {
 
 // ── Harness header ─────────────────────────────────────────────────────────
 declare const __HARNESS_LOGO__: string;
+declare const __HARNESS_LOGO_LIGHT__: string;
 declare const __THEME_VARIATION__: string;
+
+/** Renders dark + light logo imgs; CSS toggles visibility by IDE theme. */
+function harnessLogoMarkup(imgClass: string): string {
+  const dark = typeof __HARNESS_LOGO__ !== 'undefined' ? __HARNESS_LOGO__ : '';
+  const light = typeof __HARNESS_LOGO_LIGHT__ !== 'undefined' ? __HARNESS_LOGO_LIGHT__ : '';
+  if (!dark && !light) return '';
+  const parts: string[] = [];
+  if (dark) parts.push(`<img class="${imgClass} logo-dark" src="${esc(dark)}" alt="Harness" />`);
+  if (light) parts.push(`<img class="${imgClass} logo-light" src="${esc(light)}" alt="Harness" />`);
+  return parts.join('');
+}
+
 function harnessHeader(org?: string, project?: string): string {
   // Menu button (3-dots icon)
   const menuButton = `<button class="header-menu-btn" data-action="toggleMenu" aria-label="Open menu">
@@ -1689,10 +1704,9 @@ function harnessHeader(org?: string, project?: string): string {
 
   // One compact flat bar: Harness mark + org / project + Switch + menu.
   // No blue gradient, no tagline, no separate project strip.
-  const logoUrl = typeof __HARNESS_LOGO__ !== 'undefined' ? __HARNESS_LOGO__ : '';
   const projText = `${org ? esc(org) : ''}${org && project ? ' / ' : ''}${project ? esc(project) : ''}`;
   return `<div class="harness-header">
-    ${logoUrl ? `<img class="harness-logo-img" src="${esc(logoUrl)}" alt="Harness" />` : ''}
+    ${harnessLogoMarkup('harness-logo-img')}
     ${projText ? `<span class="harness-project">${projText}</span>` : ''}
     ${(org || project) ? `<button class="harness-switch" data-action="selectProject">Switch</button>` : ''}
     ${menuButton}
@@ -1725,13 +1739,11 @@ function appMenu(): string {
     ? 'Change org &amp; project'
     : 'Connect your Harness account';
 
-  const logoUrl = typeof __HARNESS_LOGO__ !== 'undefined' ? __HARNESS_LOGO__ : '';
-
   return `${state.menuOpen ? '<div class="menu-scrim" data-action="closeMenu"></div>' : ''}
     <aside class="app-menu ${state.menuOpen ? 'is-open' : ''}">
       <div class="app-menu-hdr">
         <div class="app-menu-brand">
-          ${logoUrl ? `<img class="app-menu-logo" src="${esc(logoUrl)}" alt="Harness" />` : ''}
+          ${harnessLogoMarkup('app-menu-logo')}
         </div>
         <button class="hdr-btn" data-action="closeMenu" aria-label="Close menu">
           <svg width="12" height="12" viewBox="0 0 12 12">

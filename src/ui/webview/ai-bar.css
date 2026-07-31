@@ -933,6 +933,14 @@ code.aix-setup-v {
 .theme-enhanced .aix-picker-ico-harness,
 .theme-enhanced .aix-picker-item.on .aix-picker-ico-harness { color: var(--accent); opacity: 1; }
 .theme-enhanced .aix-split-ico { color: var(--accent); }
+.theme-enhanced .aix {
+  background: var(--bg-1);
+  border-top-color: var(--line);
+}
+.theme-enhanced.theme-light .aix {
+  background: linear-gradient(180deg, transparent, oklch(48% 0.16 245 / 0.04));
+}
+
 .theme-enhanced .aix-split { background: var(--bg-2); border-color: var(--line-2); }
 .theme-enhanced .aix-split-main { color: var(--fg-0); }
 .theme-enhanced .aix-split-caret { border-left-color: var(--line-2); color: var(--fg-2); }

@@ -1052,6 +1052,132 @@ body {
   color: oklch(48% 0.14 70);
 }
 
+/* ── Enhanced theme: execution list + filters (token-based, both modes) ── */
+.theme-enhanced .f-pill {
+  color: var(--fg-2);
+  border-color: var(--line-2);
+  background: var(--bg-2);
+}
+.theme-enhanced .f-pill:hover {
+  color: var(--fg-1);
+  border-color: var(--line-3);
+  background: var(--bg-3);
+}
+.theme-enhanced .f-cnt { color: var(--fg-3); }
+
+.theme-enhanced .ei-row {
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+.theme-enhanced .ei-row:hover { background: var(--bg-3); }
+.theme-enhanced .ei-row .ei-name { color: var(--fg-0); }
+.theme-enhanced .ei-row .ei-sha { color: var(--accent); }
+.theme-enhanced .ei-row .ei-branch { color: var(--fg-1); opacity: 1; }
+.theme-enhanced .ei-row .ei-author,
+.theme-enhanced .ei-row .ei-trig,
+.theme-enhanced .ei-row .ei-foot,
+.theme-enhanced .ei-dur { color: var(--fg-2); }
+.theme-enhanced .ei-row .ei-tag {
+  border-color: var(--line-2);
+  color: var(--fg-3);
+  background: transparent;
+}
+
+.theme-enhanced .ei-badge.ok { background: var(--ok-soft); color: var(--ok); }
+.theme-enhanced .ei-badge.f  { background: var(--err-soft); color: var(--err); }
+.theme-enhanced .ei-badge.r  { background: var(--run-soft); color: var(--run); }
+.theme-enhanced .ei-badge.ab {
+  background: var(--bg-3);
+  color: var(--fg-2);
+  border: 1px solid var(--line-2);
+}
+.theme-enhanced .ei-badge.ign { background: var(--warn-soft); color: var(--warn); }
+.theme-enhanced .ei-dot.ok { background: var(--ok); }
+.theme-enhanced .ei-dot.f  { background: var(--err); }
+.theme-enhanced .ei-dot.r  { background: var(--run); animation: pulse 1.4s infinite; }
+.theme-enhanced .ei-dot.ab { background: var(--fg-3); }
+.theme-enhanced .ei-dot.ign { background: var(--warn); opacity: 1; }
+
+/* Light mode: deepen warn/aborted badges for readable contrast on pale surfaces */
+.theme-enhanced.theme-light .ei-badge.ign {
+  color: oklch(45% 0.14 70);
+  background: oklch(58% 0.16 70 / 0.16);
+}
+.theme-enhanced.theme-light .ei-badge.ab {
+  color: var(--fg-1);
+  background: var(--bg-3);
+}
+.theme-enhanced.theme-light .ei-dot.ign { background: oklch(52% 0.16 70); }
+
+.theme-enhanced.theme-light .vt-btn { color: var(--fg-1); }
+.theme-enhanced.theme-light .vt-btn:hover { color: var(--fg-0); }
+.theme-enhanced.theme-light .harness-project,
+.theme-enhanced.theme-light .acct-org { color: var(--fg-1); }
+.theme-enhanced.theme-light .acct-proj { color: var(--accent); }
+
+/* Logo — dark wordmark by default, swap on light surfaces */
+.harness-logo-img.logo-light,
+.app-menu-logo.logo-light { display: none; }
+body.vscode-light .harness-logo-img.logo-dark,
+body.vscode-light .app-menu-logo.logo-dark,
+body.vscode-high-contrast-light .harness-logo-img.logo-dark,
+body.vscode-high-contrast-light .app-menu-logo.logo-dark,
+body.theme-enhanced.theme-light .harness-logo-img.logo-dark,
+body.theme-enhanced.theme-light .app-menu-logo.logo-dark { display: none; }
+body.vscode-light .harness-logo-img.logo-light,
+body.vscode-light .app-menu-logo.logo-light,
+body.vscode-high-contrast-light .harness-logo-img.logo-light,
+body.vscode-high-contrast-light .app-menu-logo.logo-light,
+body.theme-enhanced.theme-light .harness-logo-img.logo-light,
+body.theme-enhanced.theme-light .app-menu-logo.logo-light { display: inline; }
+
+/* Enhanced app menu — token-based selection (fixes light-mode blue bar) */
+.theme-enhanced .app-menu {
+  background: var(--bg-1);
+  border-right-color: var(--line);
+}
+.theme-enhanced .app-menu-hdr { border-bottom-color: var(--line); }
+.theme-enhanced .app-menu-section { color: var(--fg-3); opacity: 1; }
+.theme-enhanced .app-menu-item { color: var(--fg-1); }
+.theme-enhanced .app-menu-item:hover { background: var(--bg-3); }
+.theme-enhanced .app-menu-label { color: var(--fg-0); }
+.theme-enhanced .app-menu-desc { color: var(--fg-3); }
+.theme-enhanced .app-menu-ico {
+  background: var(--bg-3);
+  color: var(--fg-1);
+  border: 1px solid var(--line-2);
+}
+.theme-enhanced .app-menu-item.on {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+}
+.theme-enhanced .app-menu-item.on .app-menu-label { color: var(--accent); }
+.theme-enhanced .app-menu-item.on .app-menu-desc { color: var(--fg-2); }
+.theme-enhanced .app-menu-item.on .app-menu-ico {
+  background: var(--bg-2);
+  color: var(--accent);
+  border-color: var(--accent-ring);
+}
+.theme-enhanced .app-menu-dot {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-ring);
+}
+.theme-enhanced .app-menu-item.account-item .account-ico {
+  background: var(--bg-3);
+  border-color: var(--line-2);
+  color: var(--fg-1);
+}
+.theme-enhanced .app-menu-item.account-item:hover .account-ico {
+  color: var(--accent);
+  border-color: var(--accent-ring);
+}
+.theme-enhanced .app-menu-chev { color: var(--fg-3); }
+.theme-enhanced .app-menu-item.account-item:hover .app-menu-chev { color: var(--accent); }
+.theme-enhanced .hdr-btn { color: var(--fg-2); }
+.theme-enhanced .hdr-btn:hover { color: var(--fg-0); background: var(--bg-3); }
+.theme-enhanced .menu-scrim { background: rgba(0, 0, 0, 0.45); }
+.theme-enhanced.theme-light .menu-scrim { background: rgba(20, 22, 28, 0.22); }
+
 /* ══════════════════════════════════════════════════════════════════
    SIMPLE THEME — Original design (default)
    ══════════════════════════════════════════════════════════════ */

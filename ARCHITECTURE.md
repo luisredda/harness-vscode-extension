@@ -414,7 +414,7 @@ src/
 │   ├── mcpConfigurer.ts      # MCP setup
 │   ├── launcher.ts           # Tool execution
 │   ├── promptBuilder.ts      # Context injection
-│   └── aidaChatPanel.ts      # Harness AI Chat panel (SSE, elicitations, context chip, MCP pill)
+│   └── aidaChatPanel.ts      # Harness AI Chat panel (SSE, elicitations, session title, split input, context chip, MCP pill, ⌘⇧H)
 ├── fme/                      # Feature Management
 │   └── fmeClient.ts          # Feature flags
 ├── logs/                     # Log viewing
@@ -477,7 +477,27 @@ POST /approval/submit
 A webview **panel** (not the sidebar), surfaced as **"Harness AI Chat"**, that
 talks to the Harness Intelligence chat API and streams responses over
 Server-Sent Events (SSE). Layout mirrors the web chat: centered greeting, quick
-chips near the input, clean header.
+chips near the input, minimal header.
+
+**Command:** `Harness: Open AI Chat` — keybinding **⌘⇧H** / **Ctrl+⇧H** opens
+or focuses the panel and focuses the textarea.
+
+**Base URL:** all endpoints are prefixed with `cfg.baseUrl` from extension
+config (SaaS or self-hosted).
+
+### Input layout
+
+Split input (Claude-style): textarea on top, neutral grey divider
+(`--ac-input-divider`), footer row with MCP pill + send button.
+
+### Session title & history
+
+- Header shows the generated **session title** during an active chat (blank on
+  new chat until the backend assigns a title).
+- Title from SSE (`stream_metadata.title`, `session_title` / `title`) or
+  `FETCH_SESSION_TITLE` after stream end.
+- **History** (overflow → History): searchable card list (title + relative
+  time); reopening a session restores title + messages via `hydrateFromHistory`.
 
 ### Streaming
 ```
@@ -523,7 +543,7 @@ External MCP connectors (Jira, GitHub, …) are a **per-user-per-project**
 backend setting — the chat body is identical whether or not they apply; the
 backend injects the tools from the stored selection keyed on the authenticated
 user + project. On open, `fetchSelectedConnectorIds()` reads
-`/api/v1/user-settings/selected_connector_ids` and a footer pill
+`/api/v1/user-settings/selected_connector_ids` and an input-**footer** pill
 (`ac-mcp-pill`) shows `MCP · N connectors` / `MCP · none` with the connector
 names in a tooltip. Works over PAT; the deciding factor is which project the
 extension targets.

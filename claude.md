@@ -42,7 +42,7 @@ A VS Code sidebar extension that surfaces Harness pipeline execution (CI, CD, ST
 | `src/ai/detector.ts` | Detects Claude Code CLI/Extension/Cursor and checks MCP configuration |
 | `src/ai/mcpConfigurer.ts` | Writes Harness MCP server config to `~/.claude.json` |
 | `src/ai/launcher.ts` | Launches Claude Code CLI/Extension or Cursor with prompts |
-| `src/ai/aidaChatPanel.ts` | Harness AI Chat panel — SSE streaming, markdown, history, elicitation cards, pipeline-context chip, MCP connector pill |
+| `src/ai/aidaChatPanel.ts` | Harness AI Chat panel — SSE streaming, markdown, history cards, session title header, split input + MCP pill, elicitation cards, pipeline-context chip, ⌘⇧H focus |
 
 ---
 
@@ -291,7 +291,11 @@ A webview **panel** (separate from the sidebar), surfaced as **"Harness AI
 Chat"** (tab title, input placeholder, disclaimer), that streams from the
 Harness Intelligence chat API and renders full markdown + session history.
 The layout mirrors the web chat: greeting centered vertically, quick chips
-grouped near the input, clean header with no title/logo.
+grouped near the input, minimal header (session title when active — see below).
+
+**Command:** `Harness: Open AI Chat` (`harness.openIntelligenceChat`) — also
+bound to **⌘⇧H** (macOS) / **Ctrl+⇧H** (Windows/Linux). Opens or focuses the
+panel and places the cursor in the input (`FOCUS_INPUT` webview message).
 
 **Endpoint (SSE):**
 ```
@@ -305,6 +309,35 @@ The host reads the stream, forwards each `event:`/`data:` pair to the webview as
 **Request `context`:** only `currentUrl` observed in captures — the backend
 parses account/org/project/pipeline/stage from the Harness UI URL (same
 URL-extraction pattern as the Harness MCP server).
+
+**Base URL:** all Intelligence API calls use `cfg.baseUrl` from extension
+config (`harness.baseUrl` / `HARNESS_BASE_URL`) — works for SaaS and
+self-hosted instances that expose the same `/gateway/harness-intelligence/…`
+routes.
+
+### Input layout
+
+Claude-style **split input box** (`.ac-form`):
+
+- **Top:** auto-growing textarea (`.ac-form-body`)
+- **Divider:** subtle neutral grey line (`--ac-input-divider`) — not the outer
+  animated border color
+- **Footer:** MCP connector pill (left) + circular send button (right)
+
+Disclaimer under the input shows the focus shortcut (platform-aware).
+
+### Session title & history
+
+- **Active chat:** header shows the backend-generated **session title** once
+  available (empty on new-chat greeting). Title sources: SSE
+  `stream_metadata.title`, `session_title` / `title` events, or a post-stream
+  `FETCH_SESSION_TITLE` fallback (host lists sessions, webview gets
+  `SESSION_TITLE`).
+- **History view** (overflow menu → History): full-panel list with search;
+  header reads **History**. Each session is a **card** (title + relative time,
+  e.g. `3h ago`); ⋮ menu supports rename / copy conversation ID / delete.
+- Reopening a session sets the header title immediately; rename syncs header
+  when the active session is renamed.
 
 ### Pipeline-context chip
 
@@ -332,8 +365,9 @@ silently has no external tools.
 - On open, `fetchSelectedConnectorIds()` GETs
   `/api/v1/user-settings/selected_connector_ids?orgIdentifier=…&projectIdentifier=…`
   (`{ value: "id1,id2" }`), and a status **pill** (`ac-mcp-pill`) in the input
-  footer shows `MCP · N connectors` (green) or `MCP · none`, with a hover
-  tooltip listing the connector names or explaining none are configured.
+  **footer** (below the divider) shows `MCP · N connectors` (green) or
+  `MCP · none`, with a hover tooltip listing the connector names or explaining
+  none are configured.
 - Verified via curl + browser captures: works over PAT (`x-api-key`); the only
   variable is which **project** the extension points at.
 
@@ -416,6 +450,7 @@ logger.error('Component', 'Operation failed:', error);
 ```
 
 **Commands:**
+- `Harness: Open AI Chat` — Open/focus Harness AI Chat panel (⌘⇧H / Ctrl+⇧H)
 - `Harness: Show Debug Output` — View full API payloads
 - `Harness: Debug FME Flags` — View current feature flag states
 - `Harness: Export Last Execution to JSON` — Export execution data for debugging

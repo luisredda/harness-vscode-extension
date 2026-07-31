@@ -82,6 +82,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const logoUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, 'icons', 'harness-logo.png')
     );
+    const logoLightUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'icons', 'harness-logo-light.svg')
+    );
 
     return /* html */`<!DOCTYPE html>
 <html lang="en">
@@ -101,6 +104,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   <div id="root"></div>
   <script nonce="${nonce}">
     window.__HARNESS_LOGO__ = "${logoUri}";
+    window.__HARNESS_LOGO_LIGHT__ = "${logoLightUri}";
     window.__THEME_VARIATION__ = "${themeVariation}";
   </script>
   <script nonce="${nonce}" src="${scriptUri}"></script>

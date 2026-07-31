@@ -109,11 +109,18 @@
       },
       {
         "command": "harness.openIntelligenceChat",
-        "title": "Harness: Open Intelligence Chat",
+        "title": "Harness: Open AI Chat",
         "icon": {
           "light": "icons/harness-intelligence-light.svg",
           "dark": "icons/harness-intelligence-dark.svg"
         }
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "harness.openIntelligenceChat",
+        "key": "ctrl+shift+h",
+        "mac": "cmd+shift+h"
       }
     ],
     "menus": {
