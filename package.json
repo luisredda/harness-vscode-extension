@@ -127,7 +127,20 @@
       "editor/title": [
         {
           "command": "harness.openIntelligenceChat",
-          "group": "navigation@100"
+          "group": "navigation@1"
+        }
+      ],
+      "modalEditor/editorTitle": [
+        {
+          "command": "harness.openIntelligenceChat",
+          "group": "navigation@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "harness.openIntelligenceChat",
+          "when": "view == harness.sidebar",
+          "group": "navigation@1"
         }
       ]
     },

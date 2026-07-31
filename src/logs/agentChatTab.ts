@@ -313,14 +313,14 @@ export async function openAgentChatTab(info: AgentChatInfo): Promise<void> {
   // Reuse existing panel if open
   const existing = activePanels.get(panelKey);
   if (existing) {
-    existing.reveal(vscode.ViewColumn.Two, true);
+    existing.reveal(vscode.ViewColumn.Beside, true);
     return;
   }
 
   const panel = vscode.window.createWebviewPanel(
     'harnessAgentChat',
     `⬡ ${info.stepName}`,
-    { viewColumn: vscode.ViewColumn.Two, preserveFocus: true },
+    { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
     { enableScripts: true, retainContextWhenHidden: true }
   );
 

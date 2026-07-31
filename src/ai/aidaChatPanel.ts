@@ -84,6 +84,12 @@ export function updateActiveChatContext(chatContext: IntelligenceChatContext): v
   activePanel.panel.webview.postMessage({ type: 'SET_CONTEXT', context: chatContext });
 }
 
+/** Keep Harness AI Chat panel in sync when the IDE switches light/dark theme. */
+export function updateActiveChatTheme(ideThemeKind: number): void {
+  if (!activePanel.panel) { return; }
+  activePanel.panel.webview.postMessage({ type: 'IDE_THEME', ideThemeKind });
+}
+
 /** Focus the chat input (used by keyboard shortcut when panel is already open). */
 function focusChatInput(panel: vscode.WebviewPanel): void {
   panel.webview.postMessage({ type: 'FOCUS_INPUT' });
@@ -115,6 +121,7 @@ async function initAidaChatPanel(
   }
 
   panel.webview.html = buildHtml(panel, cfg, chatContext, markedScript);
+  updateActiveChatTheme(vscode.window.activeColorTheme.kind);
 
   panel.webview.onDidReceiveMessage(async (msg) => {
     if (msg.type === 'CHAT_WEBVIEW_READY') {
@@ -225,7 +232,7 @@ export async function openAidaChatPanel(
   chatContext?: IntelligenceChatContext,
 ): Promise<void> {
   if (activePanel.panel) {
-    activePanel.panel.reveal(vscode.ViewColumn.Two, false);
+    activePanel.panel.reveal(vscode.ViewColumn.Beside, false);
     // Update context even if panel already open — send new context to webview
     if (chatContext?.currentUrl || chatContext?.initialPrompt) {
       activePanel.panel.webview.postMessage({ type: 'SET_CONTEXT', context: chatContext });
@@ -237,7 +244,7 @@ export async function openAidaChatPanel(
   const panel = vscode.window.createWebviewPanel(
     'harnessIntelligenceChat',
     'Harness AI',
-    { viewColumn: vscode.ViewColumn.Two, preserveFocus: false },
+    { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
     {
       enableScripts: true,
       retainContextWhenHidden: true,
@@ -452,6 +459,11 @@ async function deleteSession(cfg: AidaChatConfig, sessionId: string): Promise<vo
 // ── HTML ───────────────────────────────────────────────────────────────────────
 
 function buildHtml(_panel: vscode.WebviewPanel, cfg: AidaChatConfig, chatContext?: IntelligenceChatContext, markedScript?: string): string {
+  const ideThemeKind = vscode.window.activeColorTheme.kind;
+  const isLightTheme = ideThemeKind === vscode.ColorThemeKind.Light
+    || ideThemeKind === vscode.ColorThemeKind.HighContrastLight;
+  const themeAttr = isLightTheme ? 'light' : 'dark';
+
   const nonce = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
   const csp = [
     `default-src 'none'`,
@@ -473,8 +485,10 @@ function buildHtml(_panel: vscode.WebviewPanel, cfg: AidaChatConfig, chatContext
     planExecutionId: chatContext?.planExecutionId || null,
   });
 
+  const bodyClass = `theme-enhanced ${isLightTheme ? 'theme-light' : 'theme-dark'}`;
+
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="${themeAttr}">
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
@@ -484,7 +498,7 @@ function buildHtml(_panel: vscode.WebviewPanel, cfg: AidaChatConfig, chatContext
 ${CSS}
 </style>
 </head>
-<body>
+<body class="${bodyClass}">
 ${HEADER_HTML}
 <div id="ac-error-bar" style="display:none;background:#a1260d;color:#fff;font-size:12px;padding:6px 12px;white-space:pre-wrap;"></div>
 <div class="ac-messages" id="ac-messages">
@@ -701,6 +715,7 @@ function showChatView() {
 
 function showHistoryView() {
   viewMode = 'history';
+  overflowMenu.style.display = 'none';
   messagesEl.style.display = 'none';
   if (inputWrapEl) inputWrapEl.style.display = 'none';
   if (disclaimerEl) disclaimerEl.style.display = 'none';
@@ -1148,9 +1163,32 @@ function sendMessage(prompt, convId, systemEvent) {
   schedulePersistChatState();
 }
 
+// ── IDE theme (VS Code / Cursor light-dark) ───────────────────────────────────
+function applyIdeTheme(kind) {
+  const isLight = kind === 1 || kind === 4;
+  document.documentElement.dataset.theme = isLight ? 'light' : 'dark';
+  document.body.classList.toggle('theme-enhanced', true);
+  document.body.classList.toggle('theme-light', isLight);
+  document.body.classList.toggle('theme-dark', !isLight);
+}
+
+(function initIdeTheme() {
+  const cls = document.body.classList;
+  if (cls.contains('vscode-light') || cls.contains('vscode-high-contrast-light')) {
+    applyIdeTheme(1);
+  } else if (cls.contains('vscode-dark') || cls.contains('vscode-high-contrast')) {
+    applyIdeTheme(2);
+  }
+})();
+
 // ── VS Code message handler ───────────────────────────────────────────────────
 window.addEventListener('message', (e) => {
   const msg = e.data;
+
+  if (msg.type === 'IDE_THEME') {
+    applyIdeTheme(msg.ideThemeKind);
+    return;
+  }
 
   if (msg.type === 'FOCUS_INPUT') {
     showChatView();
@@ -1922,75 +1960,86 @@ function getThumbsDownSvg() {
 
 const CSS = `
 /* ── Harness Intelligence Chat Panel ─────────────────────────────────────────
-   Design reference: se3.harness.io (July 2026)
-   Animations: cn-spin (conic gradient border rotation), cn-glow-in/cn-glow (pulsing shadow)
-   Colors: LCH-based Harness design system (CN tokens)
-   Adapted for VS Code webview: uses --vscode-* CSS variables for theme integration
+   Uses the same fixed Harness design tokens as the sidebar enhanced theme so
+   VS Code, Cursor, and any other host show identical colors in dark/light mode.
    ─────────────────────────────────────────────────────────────────────────── */
 
-/* ── Color tokens ────────────────────────────────────────────────────────────
-   All Harness AI gradient values extracted from se3.harness.io computed styles.
-   --ac-ai-stop-*: Harness gradient palette (blue→indigo→violet)
-   --ac-bubble-*: User message bubble diagonal gradient
-   --ac-logo:     Diamond icon color (#0052CC equivalent, lch(60% 61 255))
-*/
+/* ── Brand accents (shared) ───────────────────────────────────────────────── */
 :root {
-  --ac-font:      Inter, system-ui, -apple-system, sans-serif;
-  --ac-font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
-
-  /* Harness AI gradient palette — exact values from se3.harness.io */
-  --ac-ai-stop-1: lch(65% 58 255);   /* blue-500   (#4A9EFF approx) */
-  --ac-ai-stop-2: lch(51% 85 280);   /* indigo-600 (#5B4FFF approx) */
-  --ac-ai-stop-3: lch(65% 61 290);   /* violet-500 (#8B5FFF approx) */
-
-  /* User message bubble — 95deg gradient, lch(91 15 255 / 0.45) → lch(79 6 272 / 0.20) */
-  --ac-bubble-from: lch(91% 15 255 / 0.45);
-  --ac-bubble-to:   lch(79% 6  272 / 0.20);
-
-  /* Logo/diamond icon — --cn-blue-600 = lch(60% 61 255) */
-  --ac-logo: lch(60% 61 255);
-
-  /* Harness button blue — lch(47% 80 280) ≈ #0052CC */
-  --ac-btn-bg: lch(47% 80 280);
-  --ac-btn-fg: lch(100% 0 0);
-
-  /* Theme-mapped tokens: fall back to Harness light values */
-  --ac-bg:        var(--vscode-sideBar-background,       lch(100% 0 0));
-  --ac-fg:        var(--vscode-foreground,               lch(25% 11.5 280));
-  --ac-fg-muted:  var(--vscode-descriptionForeground,    lch(47% 6 275));
-  --ac-fg-dim:    var(--vscode-disabledForeground,       lch(57% 5.5 273));
-  --ac-border:    var(--vscode-widget-border,            lch(92% 1 272));
-  --ac-input-bg:  var(--vscode-input-background,         lch(99% 0 272));
-  --ac-code-bg:   var(--vscode-textCodeBlock-background, lch(95% 10 243));
-  --ac-code-fg:   var(--vscode-textLink-foreground,      lch(47% 80 280));
-  --ac-hover:     var(--vscode-toolbar-hoverBackground,  lch(95% 0 272 / 0.6));
-  --ac-focus:     var(--vscode-focusBorder,              lch(47% 80 280));
+  --ac-font:      'IBM Plex Sans', -apple-system, system-ui, sans-serif;
+  --ac-font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  --ac-ai-stop-1: lch(65% 58 255);
+  --ac-ai-stop-2: lch(51% 85 280);
+  --ac-ai-stop-3: lch(65% 61 290);
   --ac-radius:    6px;
   --ac-radius-pill: 16px;
-
-  /* Reasoning/thinking block left border */
-  --ac-reasoning-border: lch(87% 1 272);
-  /* Input footer divider — subtle neutral grey (Claude-style) */
-  --ac-input-divider: lch(88% 1.5 272);
-
-  /* Input form border gradient property — updated by @keyframes ac-spin */
   --ac-angle: 131deg;
 }
 
-/* Dark mode overrides — preserve Harness accent, adapt backgrounds */
-.vscode-dark, .vscode-high-contrast {
-  --ac-logo:        lch(65% 65 255);  /* slightly lighter for dark backgrounds */
-  --ac-btn-bg:      lch(55% 75 255);  /* lighter blue for dark backgrounds */
-  --ac-ai-stop-1:   lch(65% 58 255);  /* same — already perceptually calibrated */
-  --ac-ai-stop-2:   lch(55% 85 280);  /* slightly lighter indigo for dark */
-  --ac-ai-stop-3:   lch(65% 61 290);  /* same violet */
+/* ── Light palette — matches sidebar .theme-enhanced.theme-light ──────────── */
+[data-theme="light"], .vscode-light, .vscode-high-contrast-light {
+  --ac-bg:        #FAFAF7;
+  --ac-fg:        #1A1C1F;
+  --ac-fg-muted:  #6B7079;
+  --ac-fg-dim:    #8C909A;
+  --ac-border:    #D2CEC2;
+  --ac-input-bg:  #FFFFFF;
+  --ac-code-bg:   #F4F3EE;
+  --ac-code-fg:   oklch(48% 0.16 245);
+  --ac-hover:     #ECEAE3;
+  --ac-focus:     oklch(48% 0.16 245);
+  --ac-logo:      oklch(48% 0.16 245);
+  --ac-btn-bg:    oklch(48% 0.16 245);
+  --ac-btn-fg:    #FAFAF7;
+  --ac-bubble-from: lch(91% 15 255 / 0.45);
+  --ac-bubble-to:   lch(79% 6  272 / 0.20);
+  --ac-reasoning-border: #E4E1D8;
+  --ac-input-divider: #E4E1D8;
+  --vscode-focusBorder: oklch(48% 0.16 245);
+}
 
-  /* User bubble in dark mode — more contrast, same diagonal shape */
+/* ── Dark palette — matches sidebar .theme-enhanced (default dark) ───────── */
+[data-theme="dark"], .vscode-dark, .vscode-high-contrast {
+  --ac-bg:        #0E1013;
+  --ac-fg:        #EDF1F7;
+  --ac-fg-muted:  #8D96A5;
+  --ac-fg-dim:    #616978;
+  --ac-border:    #323947;
+  --ac-input-bg:  #1B1F26;
+  --ac-code-bg:   #14171C;
+  --ac-code-fg:   oklch(78% 0.13 200);
+  --ac-hover:     #232832;
+  --ac-focus:     oklch(78% 0.13 200);
+  --ac-logo:      oklch(78% 0.13 200);
+  --ac-btn-bg:    oklch(78% 0.13 200);
+  --ac-btn-fg:    #0E1013;
+  --ac-ai-stop-2: lch(55% 85 280);
   --ac-bubble-from: lch(35% 20 255 / 0.35);
   --ac-bubble-to:   lch(25% 8  272 / 0.25);
+  --ac-reasoning-border: #323947;
+  --ac-input-divider: #242933;
+  --vscode-focusBorder: oklch(78% 0.13 200);
+}
 
-  --ac-reasoning-border: lch(30% 3 275);
-  --ac-input-divider: lch(32% 3.5 275);
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ac-bg:        #0E1013;
+    --ac-fg:        #EDF1F7;
+    --ac-fg-muted:  #8D96A5;
+    --ac-fg-dim:    #616978;
+    --ac-border:    #323947;
+    --ac-input-bg:  #1B1F26;
+    --ac-code-bg:   #14171C;
+    --ac-code-fg:   oklch(78% 0.13 200);
+    --ac-hover:     #232832;
+    --ac-focus:     oklch(78% 0.13 200);
+    --ac-logo:      oklch(78% 0.13 200);
+    --ac-btn-bg:    oklch(78% 0.13 200);
+    --ac-btn-fg:    #0E1013;
+    --ac-reasoning-border: #323947;
+    --ac-input-divider: #242933;
+    --vscode-focusBorder: oklch(78% 0.13 200);
+  }
 }
 
 /* ── Reset ───────────────────────────────────────────────────────────────── */
@@ -2007,6 +2056,8 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv02', 'cv03', 'cv04';
 }
 
 /* ── Header ──────────────────────────────────────────────────────────────── */
@@ -2085,14 +2136,15 @@ body {
   flex-direction: column;
   gap: 20px;
   scrollbar-width: thin;
-  scrollbar-color: var(--vscode-scrollbarSlider-background, lch(84% 3.5 272)) transparent;
+  scrollbar-color: var(--ac-border) transparent;
 }
-.ac-messages::-webkit-scrollbar { width: 4px; }
+.ac-messages::-webkit-scrollbar { width: 6px; }
 .ac-messages::-webkit-scrollbar-track { background: transparent; }
 .ac-messages::-webkit-scrollbar-thumb {
-  background: var(--vscode-scrollbarSlider-background, lch(84% 3.5 272));
-  border-radius: 4px;
+  background: var(--ac-hover);
+  border-radius: 3px;
 }
+.ac-messages::-webkit-scrollbar-thumb:hover { background: var(--ac-border); }
 
 /* ── Greeting (empty state) ──────────────────────────────────────────────────
    Matches the Harness UI: the greeting is centered vertically and the quick
@@ -2145,8 +2197,8 @@ body {
   max-width: 100%;
   min-height: 36px;
   padding: 8px 14px;
-  background: var(--vscode-button-secondaryBackground, lch(99% 0 272));
-  color: var(--vscode-button-secondaryForeground, lch(25% 11.5 280));
+  background: var(--ac-input-bg);
+  color: var(--ac-fg);
   border: 1px solid var(--ac-border);
   border-radius: 8px;
   font-size: 13px;
@@ -2279,7 +2331,7 @@ body {
 .ac-msg-body strong { font-weight: 600; }
 .ac-msg-body em { font-style: italic; }
 .ac-msg-body a {
-  color: var(--vscode-textLink-foreground, var(--ac-code-fg));
+  color: var(--ac-code-fg);
   text-decoration: none;
 }
 .ac-msg-body a:hover { text-decoration: underline; }
@@ -2338,7 +2390,7 @@ body {
 /* ── Error message ───────────────────────────────────────────────────────── */
 .ac-msg-error {
   font-size: 13px;
-  color: var(--vscode-errorForeground, lch(50% 80 25));
+  color: oklch(68% 0.21 22);
   padding: 6px 0;
 }
 
@@ -2363,7 +2415,7 @@ body {
   border-radius: var(--ac-radius);
   padding: 14px 16px;
   margin: 8px 0;
-  background: var(--vscode-editorWidget-background, var(--ac-input-bg));
+  background: var(--ac-input-bg);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2416,7 +2468,7 @@ body {
 .ac-elix-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .ac-elix-btn-primary   { background: var(--ac-btn-bg); color: var(--ac-btn-fg); border-color: var(--ac-btn-bg); }
 .ac-elix-btn-ghost     { background: transparent; color: var(--ac-fg-muted); }
-.ac-elix-btn-destructive { background: transparent; color: var(--vscode-errorForeground, lch(50% 80 25)); border-color: var(--vscode-errorForeground, lch(50% 80 25)); }
+.ac-elix-btn-destructive { background: transparent; color: oklch(68% 0.21 22); border-color: oklch(68% 0.21 22); }
 .ac-elix-btn:not(:disabled):hover { filter: brightness(1.1); }
 /* Read-only history elicitations: the action the user actually took stays highlighted */
 .ac-elix-btn-chosen { opacity: 1 !important; border-color: var(--ac-btn-bg); box-shadow: 0 0 0 1px var(--ac-btn-bg) inset; font-weight: 600; }
@@ -2571,7 +2623,6 @@ body {
 }
 
 .ac-form {
-  /* Default: solid border using VS Code widget border color */
   background: linear-gradient(var(--ac-input-bg), var(--ac-input-bg)) padding-box,
               linear-gradient(var(--ac-border), var(--ac-border)) border-box;
   border: 1.5px solid transparent;
@@ -2587,7 +2638,6 @@ body {
   padding: 12px 14px 10px;
 }
 
-/* Hover: conic gradient preview (static, no spin yet) */
 .ac-form:hover:not(:focus-within) {
   background:
     linear-gradient(var(--ac-input-bg), var(--ac-input-bg)) padding-box,
@@ -2600,10 +2650,6 @@ body {
     ) border-box;
 }
 
-/* Focus: spinning conic gradient + glow-in then cycling glow */
-/* Matches exactly: animation: 4s linear 0s infinite cn-spin,
-                               0.3s ease-out 0s 1 forwards cn-glow-in,
-                               5s ease-in-out 0.3s infinite cn-glow */
 .ac-form:focus-within {
   animation:
     ac-spin   4s linear   0s   infinite normal none running,
@@ -2625,7 +2671,9 @@ body {
   background: transparent;
   color: var(--ac-fg);
   border: none;
-  outline: none;
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
   font-family: var(--ac-font);
   font-size: 14px;
   font-weight: 400;
@@ -2638,7 +2686,14 @@ body {
   /* field-sizing: content — auto-grow without JS */
   field-sizing: content;
 }
-.ac-textarea::placeholder { color: var(--vscode-input-placeholderForeground, var(--ac-fg-dim)); }
+.ac-textarea:focus,
+.ac-textarea:focus-visible {
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+.ac-textarea::placeholder { color: var(--ac-fg-dim); }
 .ac-textarea::-webkit-scrollbar { display: none; }
 
 .ac-form-footer {
@@ -2726,7 +2781,7 @@ body {
   min-width: 220px;
   max-width: min(340px, calc(100vw - 16px));
   max-height: min(320px, calc(100vh - 16px));
-  background: var(--vscode-editorWidget-background, var(--ac-input-bg));
+  background: var(--ac-input-bg);
   border: 1px solid var(--ac-border);
   border-radius: 10px;
   box-shadow:
@@ -2879,7 +2934,7 @@ body {
   background: var(--ac-input-bg);
   border: 1px solid var(--ac-border);
   border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--ac-fg) 18%, transparent);
   padding: 4px;
   z-index: 50;
 }
@@ -2951,7 +3006,7 @@ body {
   justify-content: space-between;
   gap: 8px;
   padding: 12px 12px;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid var(--ac-border);
   background: var(--ac-input-bg);
   cursor: pointer;
@@ -2959,7 +3014,7 @@ body {
 }
 .ac-history-item:hover {
   background: var(--ac-hover);
-  border-color: color-mix(in srgb, var(--ac-border) 70%, var(--ac-fg-muted));
+  border-color: color-mix(in srgb, var(--ac-border) 60%, var(--ac-focus));
 }
 .ac-history-item-main { min-width: 0; flex: 1; }
 .ac-history-item-title {
@@ -3008,6 +3063,44 @@ body {
   font-size: 13.5px;
   font-weight: 500;
   outline: none;
+}
+
+/* ── Focus ring isolation ────────────────────────────────────────────────────
+   Cursor/VS Code inject textarea:focus { outline: 1px solid var(--vscode-focusBorder) }
+   which leaks the IDE theme (often orange). Suppress on the chat input; keep our
+   animated conic border as the only focus indicator on .ac-form. */
+.ac-form,
+.ac-form:focus,
+.ac-form:focus-within,
+.ac-form-body,
+.ac-form-body:focus-within {
+  outline: none !important;
+  outline-offset: 0 !important;
+}
+
+.ac-textarea:focus,
+.ac-textarea:focus-visible,
+.ac-history-search:focus,
+.ac-history-search:focus-visible,
+.ac-history-rename-input:focus,
+.ac-history-rename-input:focus-visible,
+.ac-elix-input:focus,
+.ac-elix-input:focus-visible,
+.ac-elix-field-text:focus,
+.ac-elix-field-text:focus-visible,
+.ac-elix-field-select:focus,
+.ac-elix-field-select:focus-visible {
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+}
+
+.ac-icon-btn:focus-visible,
+.ac-send:focus-visible,
+.ac-chip:focus-visible,
+.ac-history-item-menu-btn:focus-visible {
+  outline: 2px solid var(--ac-focus) !important;
+  outline-offset: 2px;
 }
 `;
 

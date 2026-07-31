@@ -19,7 +19,7 @@ import { initFmeClient, destroyFmeClient, getLogViewerVariation } from './fme/fm
 import { LogContentProvider, LOG_SCHEME } from './logs/logContentProvider';
 import { openLogAsEditorTab } from './logs/logEditorTab';
 import { openAgentChatTab, isAgentLog } from './logs/agentChatTab';
-import { openAidaChatPanel, registerAidaChatPanelSerializer, updateActiveChatContext, type IntelligenceChatContext } from './ai/aidaChatPanel';
+import { openAidaChatPanel, registerAidaChatPanelSerializer, updateActiveChatContext, updateActiveChatTheme, type IntelligenceChatContext } from './ai/aidaChatPanel';
 import { detectAITools } from './ai/detector';
 import { configureMCP, configureCopilotMCP } from './ai/mcpConfigurer';
 import { buildPrompt } from './ai/promptBuilder';
@@ -697,6 +697,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { getWebviewThemeVariation } = await import('./fme/fmeClient');
       const webviewTheme = getWebviewThemeVariation();
       const ideThemeKind = vscode.window.activeColorTheme.kind;
+      updateActiveChatTheme(ideThemeKind);
       // Send updated theme to webview via GIT_CONTEXT message
       const gitCtx = await import('./git/gitContext');
       const ctx = await gitCtx.getGitContext();

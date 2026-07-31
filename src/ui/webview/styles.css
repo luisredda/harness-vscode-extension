@@ -3,11 +3,15 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
+  overflow-x: hidden;
+}
+
+/* Simple theme follows the IDE color tokens */
+body.theme-simple {
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
   color: var(--vscode-foreground);
   background: var(--vscode-sideBar-background);
-  overflow-x: hidden;
 }
 
 /* ── Panel layout (all themes) ────────────────────────────────── */
@@ -4004,7 +4008,7 @@ a[data-action="openUrl"] { cursor: pointer; }
 
 .theme-enhanced .pl-item .ei-name {
   font-size: 11.5px;
-  color: var(--fg-3);
+  color: var(--fg-0);
   font-weight: 600;
   margin-bottom: 3px;
 }
@@ -4170,9 +4174,9 @@ a[data-action="openUrl"] { cursor: pointer; }
   flex: 1;
   order: 1;
 }
-.pl-item .ei-name {
+.theme-simple .pl-item .ei-name {
   font-size: 11.5px;
-  color: var(--vscode-editor-foreground) !important;
+  color: var(--vscode-editor-foreground);
   font-weight: 600;
   margin-bottom: 3px;
 }
@@ -4655,4 +4659,241 @@ a[data-action="openUrl"] { cursor: pointer; }
 
 .theme-enhanced .sort-btn span:first-child {
   opacity: 0.6;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   ENHANCED — IDE token isolation
+   Base styles above use --vscode-* for simple theme. These overrides
+   come last so enhanced mode always uses the fixed Harness palette,
+   regardless of Cursor/VS Code/custom theme colors.
+   ══════════════════════════════════════════════════════════════ */
+
+body.theme-enhanced {
+  background: var(--bg-0);
+  color: var(--fg-0);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.theme-enhanced .harness-header {
+  background: var(--bg-0);
+  border-bottom-color: var(--line);
+}
+.theme-enhanced .harness-project { color: var(--fg-1); }
+.theme-enhanced .harness-switch { color: var(--accent); font-family: var(--font-sans); }
+.theme-enhanced .header-menu-btn { color: var(--fg-2); }
+.theme-enhanced .header-menu-btn:hover {
+  background: var(--bg-3);
+  color: var(--fg-0);
+}
+
+.theme-enhanced .back-bar {
+  padding: 5px 12px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+}
+.theme-enhanced .back-btn {
+  color: var(--accent);
+  font-family: var(--font-sans);
+}
+.theme-enhanced .back-btn:hover { background: var(--accent-soft); }
+.theme-enhanced .bc { color: var(--fg-2); }
+.theme-enhanced .bc span { color: var(--fg-0); }
+
+.theme-enhanced .adj-bar {
+  padding: 5px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-1);
+}
+.theme-enhanced .adj-btn {
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  background: var(--bg-2);
+  color: var(--fg-2);
+  font-family: var(--font-sans);
+}
+.theme-enhanced .adj-btn:hover:not(.off) {
+  background: var(--bg-3);
+  border-color: var(--accent-ring);
+  color: var(--fg-1);
+}
+.theme-enhanced .adj-lbl { color: var(--fg-3); opacity: 1; }
+.theme-enhanced .adj-mid { color: var(--fg-3); }
+.theme-enhanced .adj-n.ok { color: var(--ok); }
+.theme-enhanced .adj-n.f  { color: var(--err); }
+.theme-enhanced .adj-n.r  { color: var(--run); }
+
+/* Beat base .step-row / .stage-row vscode hover & selection (defined earlier) */
+.theme-enhanced .step-row,
+.theme-enhanced button.step-row {
+  color: inherit;
+}
+.theme-enhanced .step-row.step-clickable:hover,
+.theme-enhanced button.step-row:hover {
+  background: var(--bg-2);
+}
+.theme-enhanced .step-row.on,
+.theme-enhanced button.step-row.on {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.theme-enhanced .step-row.on .step-name { color: var(--accent); }
+
+.theme-enhanced .stage-row.active {
+  background: transparent;
+  color: inherit;
+  border-left: none;
+  padding-left: 10px;
+}
+.theme-enhanced .stage-row.active .stage-dur { color: var(--fg-3); opacity: 1; }
+
+.theme-enhanced .app-menu {
+  background: var(--bg-2);
+  border-right-color: var(--line);
+}
+.theme-enhanced .menu-scrim { background: rgba(0, 0, 0, 0.55); }
+
+.theme-enhanced .hist-sort-btn,
+.theme-enhanced .hist-range-btn {
+  background: var(--bg-2);
+  border-color: var(--line-2);
+  color: var(--fg-1);
+}
+.theme-enhanced .hist-sort-btn:hover,
+.theme-enhanced .hist-range-btn:hover {
+  background: var(--bg-3);
+  border-color: var(--accent-ring);
+}
+.theme-enhanced .hist-sort-menu {
+  background: var(--bg-2);
+  border-color: var(--line-2);
+}
+.theme-enhanced .hist-sort-opt:hover {
+  background: var(--bg-3);
+  color: var(--fg-0);
+}
+.theme-enhanced .hist-sort-menu .menu-div {
+  background: var(--line);
+}
+
+/* View toggle — base .vt-btn rules come later and were winning the cascade */
+.theme-enhanced .vt {
+  background: var(--bg-1);
+  border-bottom-color: var(--line);
+}
+.theme-enhanced .vt-btn {
+  background: transparent;
+  color: var(--fg-2);
+  border-bottom: 2px solid transparent;
+}
+.theme-enhanced .vt-btn:hover {
+  background: var(--bg-2);
+  color: var(--fg-1);
+}
+.theme-enhanced .vt-btn.on {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: var(--accent-soft);
+}
+.theme-enhanced .vt-pin { color: var(--fg-3); }
+.theme-enhanced .vt-pin.on { color: var(--accent); }
+
+/* Pagination bar */
+.theme-enhanced .pag {
+  background: var(--bg-1);
+  border-top-color: var(--line);
+}
+.theme-enhanced .pg-btn {
+  background: var(--bg-2);
+  border-color: var(--line-2);
+  color: var(--fg-2);
+}
+.theme-enhanced .pg-btn:hover:not(:disabled) {
+  background: var(--bg-3);
+  border-color: var(--accent-ring);
+  color: var(--fg-1);
+}
+.theme-enhanced .pg-num {
+  color: var(--fg-2);
+}
+.theme-enhanced .pg-num:hover {
+  background: var(--bg-3);
+  color: var(--fg-0);
+}
+.theme-enhanced .pg-num.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-ring);
+  font-weight: 600;
+}
+.theme-enhanced .pg-info {
+  color: var(--fg-3);
+  opacity: 1;
+}
+
+/* Pipeline list cards */
+.theme-enhanced .pl-item {
+  background: var(--bg-1);
+  border-color: var(--line);
+}
+.theme-enhanced .pl-item:hover {
+  background: var(--bg-2);
+  border-color: var(--line-2);
+}
+.theme-enhanced .pl-item.exec-item {
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+}
+.theme-enhanced .pl-item .ei-name {
+  color: var(--fg-0);
+}
+.theme-enhanced .pl-item .ei-meta {
+  color: var(--fg-2);
+}
+.theme-enhanced .pl-icon {
+  color: var(--fg-2);
+}
+.theme-enhanced .pl-pin {
+  color: var(--fg-2);
+}
+.theme-enhanced .pl-pin.on {
+  color: var(--accent);
+}
+.theme-enhanced .pl-search-wrap {
+  border-bottom-color: var(--line);
+}
+.theme-enhanced .hist-count-chip {
+  color: var(--fg-2);
+  border-left-color: var(--line);
+}
+
+/* Execution list rows (executions tab) */
+.theme-enhanced .exec-item {
+  background: var(--bg-1);
+  border-bottom-color: var(--line);
+}
+.theme-enhanced .exec-item:hover {
+  background: var(--bg-2);
+}
+.theme-enhanced .ei-name {
+  color: var(--fg-0);
+}
+.theme-enhanced .ei-meta,
+.theme-enhanced .ei-sub {
+  color: var(--fg-2);
+}
+
+/* Load more footer (executions list) */
+.theme-enhanced .load-more {
+  background: var(--bg-1);
+  border-top-color: var(--line);
+}
+.theme-enhanced .load-more-btn {
+  color: var(--accent);
+  background: transparent;
+  border-color: transparent;
+}
+.theme-enhanced .load-more-btn:hover:not(:disabled) {
+  background: var(--bg-2);
+  border-color: var(--accent-ring);
 }
