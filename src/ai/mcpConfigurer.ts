@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as vscode from 'vscode';
 import { getProjectMCPConfigPath, getGlobalMCPConfigPath, detectMCPScope } from './detector';
+import { ensureMcpSecretsGitignored } from './mcpGitignore';
 import { logger } from '../utils/logger';
 import { MCPScope } from './types';
 
@@ -171,8 +172,9 @@ function writeProjectScope(filePath: string, harness: MCPServerConfig): void {
  * Backs up invalid JSON before writing
  * Merges with existing servers (never overwrites other tools)
  */
-export async function configureMCP(options: ConfigureOptions): Promise<{ scope: MCPScope; path: string }> {
+export async function configureMCP(options: ConfigureOptions): Promise<{ scope: MCPScope; path: string; gitignoreAdded?: string[] }> {
   const harnessConfig: MCPServerConfig = buildHarnessServerConfig(options);
+  const writesPatToProject = options.scope === 'project' && options.credentialSource !== 'env';
 
   if (options.scope === 'project') {
     const projectPath = getProjectMCPConfigPath();
@@ -180,7 +182,8 @@ export async function configureMCP(options: ConfigureOptions): Promise<{ scope: 
       throw new Error('No workspace folder is open. Open a folder before choosing project scope.');
     }
     writeProjectScope(projectPath, harnessConfig);
-    return { scope: 'project', path: projectPath };
+    const gitignoreAdded = writesPatToProject ? await ensureMcpSecretsGitignored() : [];
+    return { scope: 'project', path: projectPath, gitignoreAdded };
   }
 
   const globalPath = getGlobalMCPConfigPath();
@@ -297,16 +300,18 @@ function writeCopilotMcpConfig(filePath: string, harness: MCPServerConfig): void
 /**
  * Configure Harness MCP server for GitHub Copilot (local or global scope)
  */
-export async function configureCopilotMCP(options: ConfigureOptions): Promise<{ scope: MCPScope; path: string }> {
+export async function configureCopilotMCP(options: ConfigureOptions): Promise<{ scope: MCPScope; path: string; gitignoreAdded?: string[] }> {
   const harnessConfig: MCPServerConfig = buildCopilotServerConfig(options);
   const paths = getCopilotMcpPaths();
+  const writesPatToProject = options.scope === 'project' && options.credentialSource !== 'env';
 
   if (options.scope === 'project') {
     if (!paths.local) {
       throw new Error('No workspace folder is open. Open a folder before choosing project scope.');
     }
     writeCopilotMcpConfig(paths.local, harnessConfig);
-    return { scope: 'project', path: paths.local };
+    const gitignoreAdded = writesPatToProject ? await ensureMcpSecretsGitignored() : [];
+    return { scope: 'project', path: paths.local, gitignoreAdded };
   }
 
   writeCopilotMcpConfig(paths.global, harnessConfig);

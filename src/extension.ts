@@ -574,6 +574,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const activeTool = updatedDetection.activeTool || 'claudecode-cli';
 
         logger.info('AI', `MCP configured successfully at ${result.path}`);
+        if (result.gitignoreAdded?.length) {
+          vscode.window.showInformationMessage(
+            `Harness: Added ${result.gitignoreAdded.join(' and ')} to .gitignore — the MCP config contains your API key.`,
+          );
+        }
         bridge.send({
           type: 'AI_CONFIG_DONE',
           tool: activeTool,

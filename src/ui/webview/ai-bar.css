@@ -1268,6 +1268,24 @@ code.aix-setup-v {
   background: var(--accent-soft);
 }
 
+/* ── PAT / secrets warning card ─────────────────────────────── */
+.aix-overlay-warn {
+  background:
+    radial-gradient(140% 100% at 0% 0%, var(--warn-soft), transparent 55%),
+    linear-gradient(180deg, var(--bg-2), var(--bg-1));
+  border: 1px solid oklch(80% 0.15 75 / 0.35);
+  padding: 12px 14px;
+}
+.aix-scope-tip-warn {
+  border-style: solid;
+  border-color: oklch(80% 0.15 75 / 0.45);
+  background: var(--warn-soft);
+  color: var(--fg-1);
+}
+.aix-scope-tip-warn .aix-scope-tip-ico {
+  color: var(--warn);
+}
+
 /* ── Conflict card ──────────────────────────────────────────── */
 .aix-overlay-conflict {
   background:

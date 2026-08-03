@@ -399,7 +399,7 @@ const state = {
   aiQuestion: '',
   aiShowToolPicker: false,
   aiDestination: 'harness' as 'harness' | 'external', // AI footer: native launcher vs external tool
-  aiOverlay: null as 'mcp-setup' | 'mcp-existing' | 'mcp-conflict' | 'mcp-done' | 'response' | 'launched' | null,
+  aiOverlay: null as 'mcp-setup' | 'mcp-existing' | 'mcp-conflict' | 'mcp-pat-warning' | 'mcp-done' | 'response' | 'launched' | null,
   aiMcpConfiguring: false,
   aiMcpSetupScope: 'project' as 'project' | 'global',          // NEW — which radio is selected
   aiMcpDoneScope: null as 'project' | 'global' | null,         // NEW — which scope was just written (for the toast)
@@ -1942,7 +1942,7 @@ function getMcpPathDisplay(toolId: string, scope: 'project' | 'global'): string 
 }
 
 function renderAIMCPCard(): string {
-  if (state.aiOverlay !== 'mcp-setup' && state.aiOverlay !== 'mcp-done' && state.aiOverlay !== 'mcp-existing' && state.aiOverlay !== 'mcp-conflict') return '';
+  if (state.aiOverlay !== 'mcp-setup' && state.aiOverlay !== 'mcp-done' && state.aiOverlay !== 'mcp-existing' && state.aiOverlay !== 'mcp-conflict' && state.aiOverlay !== 'mcp-pat-warning') return '';
   const activeTool = state.aiDetection?.activeTool;
   if (!activeTool) return '';
 
@@ -1953,6 +1953,12 @@ function renderAIMCPCard(): string {
 
   const meta = AI_TOOL_META[activeTool];
   const glyph = getAIToolGlyph(activeTool);
+
+  // PAT + project scope — require explicit confirmation before writing secrets
+  if (state.aiOverlay === 'mcp-pat-warning') {
+    const configFile = getMcpPathDisplay(activeTool, 'project');
+    return `<div class="aix-overlay aix-overlay-warn"><div class="aix-existing-hdr"><span class="aix-existing-warn">${warnIcon()}</span><div class="aix-existing-title"><strong>API key will be written to this repo</strong><span>Project MCP config stores your Harness PAT in <code class="mono">${esc(configFile)}</code>. Committing that file would expose your credentials.</span></div><button type="button" class="aix-overlay-x" data-action="cancelPatProjectMCP" aria-label="Dismiss">${closeIcon()}</button></div><div class="aix-scope-tip aix-scope-tip-warn"><span class="aix-scope-tip-ico">${infoIcon()}</span><span>On confirm, the extension adds <code class="mono">.mcp.json</code> and <code class="mono">.vscode/mcp.json</code> to <code class="mono">.gitignore</code> in this workspace. Prefer <strong>All my projects</strong> if you do not need team-shared MCP setup.</span></div><div class="aix-setup-acts"><button type="button" class="aix-btn-primary ${state.aiMcpConfiguring ? 'is-busy' : ''}" data-action="confirmPatProjectMCP" ${state.aiMcpConfiguring ? 'disabled' : ''}>${state.aiMcpConfiguring ? '<span class="aix-send-spin"></span> Configuring…' : 'Add to .gitignore and configure'}</button><button type="button" class="aix-btn-ghost" data-action="cancelPatProjectMCP" ${state.aiMcpConfiguring ? 'disabled' : ''}>Cancel</button></div></div>`;
+  }
 
   // Existing config card
   if (state.aiOverlay === 'mcp-existing') {
@@ -1981,11 +1987,19 @@ function renderAIMCPCard(): string {
   const busyClass = state.aiMcpConfiguring ? 'is-busy' : '';
   const busyContent = state.aiMcpConfiguring ? `<span class="aix-send-spin"></span> Configuring…` : (state.aiMcpSetupScope === 'project' ? 'Configure for this project' : 'Configure globally');
   const writesTo = getMcpPathDisplay(activeTool, state.aiMcpSetupScope || 'global');
+  const usesPat = state.authSource === 'pat';
+  const projectPat = state.aiMcpSetupScope === 'project' && usesPat;
+  const authLabel = usesPat ? 'Uses your stored Harness PAT' : 'Uses environment variables (no key in file)';
+  const projectScopeHint = projectPat
+    ? 'Contains your API key — confirmation required'
+    : 'Org/project IDs only — safe to share if using env auth';
   const tipText = state.aiMcpSetupScope === 'project'
-    ? (activeTool === 'copilot' ? 'Lives in .vscode/ folder.' : 'Lives in your workspace root.')
+    ? (projectPat
+      ? 'Your PAT will be written inside this repo. You must confirm before we configure.'
+      : (activeTool === 'copilot' ? 'Lives in .vscode/ with env var placeholders.' : 'Lives in your workspace root with env var placeholders.'))
     : 'Lives in your home folder. Only you use it; applies to every project you open.';
 
-  return `<div class="aix-overlay aix-overlay-setup"><div class="aix-setup-hdr"><span class="aix-setup-glyph">${glyph}</span><div class="aix-setup-title"><strong>Configure Harness MCP</strong><span>Lets ${esc(meta.name)} fetch pipeline data, logs &amp; executions.</span></div><button type="button" class="aix-overlay-x" data-action="closeAIMCPCard" aria-label="Dismiss">${closeIcon()}</button></div><div class="aix-scope-label-row"><span class="aix-setup-k">Where</span></div><div class="aix-scope"><button type="button" class="aix-scope-opt ${state.aiMcpSetupScope === 'project' ? 'on' : ''}" data-action="setMCPScope" data-scope="project"><span class="aix-scope-ico">${folderIcon()}</span><span class="aix-scope-text"><strong>This project</strong><span>shared with teammates if committed</span></span><span class="aix-scope-radio" aria-hidden></span></button><button type="button" class="aix-scope-opt ${state.aiMcpSetupScope === 'global' ? 'on' : ''}" data-action="setMCPScope" data-scope="global"><span class="aix-scope-ico">${homeIcon()}</span><span class="aix-scope-text"><strong>All my projects</strong><span>personal, every repo</span></span><span class="aix-scope-radio" aria-hidden></span></button></div><div class="aix-setup-meta"><div class="aix-setup-row"><span class="aix-setup-k">Writes to</span><code class="aix-setup-v mono">${esc(writesTo)}</code></div><div class="aix-setup-row"><span class="aix-setup-k">Auth</span><span class="aix-setup-v">Uses your stored Harness PAT</span></div></div><div class="aix-scope-tip"><span class="aix-scope-tip-ico">${infoIcon()}</span><span>${esc(tipText)}</span></div><div class="aix-setup-acts"><button type="button" class="aix-btn-primary ${busyClass}" data-action="configureAIMCP" ${state.aiMcpConfiguring ? 'disabled' : ''}>${busyContent}</button><button type="button" class="aix-btn-ghost" data-action="closeAIMCPCard">Not now</button></div></div>`;
+  return `<div class="aix-overlay aix-overlay-setup"><div class="aix-setup-hdr"><span class="aix-setup-glyph">${glyph}</span><div class="aix-setup-title"><strong>Configure Harness MCP</strong><span>Lets ${esc(meta.name)} fetch pipeline data, logs &amp; executions.</span></div><button type="button" class="aix-overlay-x" data-action="closeAIMCPCard" aria-label="Dismiss">${closeIcon()}</button></div><div class="aix-scope-label-row"><span class="aix-setup-k">Where</span></div><div class="aix-scope"><button type="button" class="aix-scope-opt ${state.aiMcpSetupScope === 'project' ? 'on' : ''}" data-action="setMCPScope" data-scope="project"><span class="aix-scope-ico">${folderIcon()}</span><span class="aix-scope-text"><strong>This project</strong><span>${esc(projectScopeHint)}</span></span><span class="aix-scope-radio" aria-hidden></span></button><button type="button" class="aix-scope-opt ${state.aiMcpSetupScope === 'global' ? 'on' : ''}" data-action="setMCPScope" data-scope="global"><span class="aix-scope-ico">${homeIcon()}</span><span class="aix-scope-text"><strong>All my projects</strong><span>personal, every repo</span></span><span class="aix-scope-radio" aria-hidden></span></button></div><div class="aix-setup-meta"><div class="aix-setup-row"><span class="aix-setup-k">Writes to</span><code class="aix-setup-v mono">${esc(writesTo)}</code></div><div class="aix-setup-row"><span class="aix-setup-k">Auth</span><span class="aix-setup-v">${esc(authLabel)}</span></div></div><div class="aix-scope-tip${projectPat ? ' aix-scope-tip-warn' : ''}"><span class="aix-scope-tip-ico">${projectPat ? warnIcon() : infoIcon()}</span><span>${esc(tipText)}</span></div><div class="aix-setup-acts"><button type="button" class="aix-btn-primary ${busyClass}" data-action="configureAIMCP" ${state.aiMcpConfiguring ? 'disabled' : ''}>${busyContent}</button><button type="button" class="aix-btn-ghost" data-action="closeAIMCPCard">Not now</button></div></div>`;
 }
 
 function renderAIResponse(): string {
@@ -4866,9 +4880,25 @@ function bind(): void {
     } else if (action === 'configureAIMCP') {
       e.preventDefault();
       e.stopPropagation();
+      if (state.aiMcpSetupScope === 'project' && state.authSource === 'pat') {
+        state.aiOverlay = 'mcp-pat-warning';
+        scheduleRender(true);
+        return;
+      }
       state.aiMcpConfiguring = true;
       scheduleRender(true);
       vscode.postMessage({ type: 'AI_CONFIGURE_MCP', scope: state.aiMcpSetupScope });
+    } else if (action === 'confirmPatProjectMCP') {
+      e.preventDefault();
+      e.stopPropagation();
+      state.aiMcpConfiguring = true;
+      scheduleRender(true);
+      vscode.postMessage({ type: 'AI_CONFIGURE_MCP', scope: 'project' });
+    } else if (action === 'cancelPatProjectMCP') {
+      e.preventDefault();
+      e.stopPropagation();
+      state.aiOverlay = 'mcp-setup';
+      scheduleRender(true);
     } else if (action === 'openMCPConfig') {
       e.preventDefault();
       e.stopPropagation();
