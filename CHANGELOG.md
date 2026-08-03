@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.1.9] - 2026-08-03
+
+### Added
+- **Harness AI Chat**: Native chat panel powered by Harness Intelligence — streaming responses, full markdown rendering, session history (search, rename, delete), interactive elicitation cards (YAML confirm, free text, select, multi-select, forms), MCP connector status pill, and a pipeline-context chip that auto-follows the execution you're viewing
+- **AI footer split launcher**: Harness AI is the primary destination in the sidebar footer; external tools (Claude Code, Copilot, Cursor) are one click away via the dropdown
+- **Worker-agent chat viewer**: AI agent pipeline steps open in a dedicated side-by-side chat tab with tool-call summaries
+- **Execution list overhaul**: Uniform row layout, server-side pagination with **Load more**, rolling time-range filter (defaults to last 24 hours), status-colored run tiles, and **SEC** module chip from execution summary
+
+### Changed
+- Enhanced sidebar theme uses a **fixed Harness palette** instead of IDE CSS variables — consistent look across VS Code, Cursor, and custom themes
+- Compact flat header with org/project inline; refreshed filter toolbar (two-row layout with color-coded status dots)
+- UI enhancements
+
+### Fixed
+- OPA policy tooltip clipping, Deploy tab environment links, and detail-tab click-through
+- Light-theme contrast for logos and app menu selection
+- Execution time-range filter respected after navigating away and back; rolling windows instead of calendar-period enums
+- Running duration display (`m:ss`), long execution name truncation, and skeleton loading layout shift
+
 ## [0.1.8] - 2026-06-23
 
 ### Added

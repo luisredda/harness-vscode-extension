@@ -3,11 +3,15 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
+  overflow-x: hidden;
+}
+
+/* Simple theme follows the IDE color tokens */
+body.theme-simple {
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
   color: var(--vscode-foreground);
   background: var(--vscode-sideBar-background);
-  overflow-x: hidden;
 }
 
 /* ── Panel layout (all themes) ────────────────────────────────── */
@@ -132,7 +136,9 @@ body {
 /* ── View Toggle ─────────────────────────────────────────────────── */
 .theme-enhanced .vt {
   display: flex; align-items: stretch;
-  height: 34px;
+  height: 44px;             /* taller so labels center with breathing room */
+  margin-top: 12px;         /* gap under the header separator */
+  margin-bottom: 2px;
   background: var(--bg-1);
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
@@ -175,6 +181,16 @@ body {
 }
 .theme-enhanced .vt-pin:hover { color: var(--fg-1); }
 .theme-enhanced .vt-pin.on { color: var(--accent); }
+
+/* Live enhanced header — space-form selector (not .theme-enhanced-dark) */
+.theme-enhanced .harness-header {
+  height: 50px;
+  min-height: 50px;
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  background: var(--bg-0);
+  border-bottom: 1px solid var(--line);
+}
 
 /* ── Git Bar ─────────────────────────────────────────────────────── */
 .theme-enhanced .git-bar {
@@ -695,7 +711,7 @@ body {
 .theme-enhanced .tb-env-name { font-weight:600; color:var(--fg-1); }
 .theme-enhanced .tb-env-meta { color:var(--fg-3); font-size:10px; flex:1; }
 .theme-enhanced .tb-env-at { color:var(--fg-3); font-size:10px; flex-shrink:0; }
-.theme-enhanced .tb-env-ext { color:var(--fg-3); display:inline-flex; align-items:center; flex-shrink:0; margin-left:6px; cursor:pointer; }
+.theme-enhanced .tb-env-ext { color:var(--fg-3); display:inline-flex; align-items:center; flex-shrink:0; margin-left:6px; cursor:pointer; text-decoration:none; }
 .theme-enhanced .tb-env-ext:hover { color:var(--accent); }
 
 /* ── Approval Card (Amber Palette) ───────────────────────────────── */
@@ -1040,82 +1056,195 @@ body {
   color: oklch(48% 0.14 70);
 }
 
+/* ── Enhanced theme: execution list + filters (token-based, both modes) ── */
+.theme-enhanced .f-pill {
+  color: var(--fg-2);
+  border-color: var(--line-2);
+  background: var(--bg-2);
+}
+.theme-enhanced .f-pill:hover {
+  color: var(--fg-1);
+  border-color: var(--line-3);
+  background: var(--bg-3);
+}
+.theme-enhanced .f-cnt { color: var(--fg-3); }
+
+.theme-enhanced .ei-row {
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+.theme-enhanced .ei-row:hover { background: var(--bg-3); }
+.theme-enhanced .ei-row .ei-name { color: var(--fg-0); }
+.theme-enhanced .ei-row .ei-sha { color: var(--accent); }
+.theme-enhanced .ei-row .ei-branch { color: var(--fg-1); opacity: 1; }
+.theme-enhanced .ei-row .ei-author,
+.theme-enhanced .ei-row .ei-trig,
+.theme-enhanced .ei-row .ei-foot,
+.theme-enhanced .ei-dur { color: var(--fg-2); }
+.theme-enhanced .ei-row .ei-tag {
+  border-color: var(--line-2);
+  color: var(--fg-3);
+  background: transparent;
+}
+
+.theme-enhanced .ei-badge.ok { background: var(--ok-soft); color: var(--ok); }
+.theme-enhanced .ei-badge.f  { background: var(--err-soft); color: var(--err); }
+.theme-enhanced .ei-badge.r  { background: var(--run-soft); color: var(--run); }
+.theme-enhanced .ei-badge.ab {
+  background: var(--bg-3);
+  color: var(--fg-2);
+  border: 1px solid var(--line-2);
+}
+.theme-enhanced .ei-badge.ign { background: var(--warn-soft); color: var(--warn); }
+.theme-enhanced .ei-dot.ok { background: var(--ok); }
+.theme-enhanced .ei-dot.f  { background: var(--err); }
+.theme-enhanced .ei-dot.r  { background: var(--run); animation: pulse 1.4s infinite; }
+.theme-enhanced .ei-dot.ab { background: var(--fg-3); }
+.theme-enhanced .ei-dot.ign { background: var(--warn); opacity: 1; }
+
+/* Light mode: deepen warn/aborted badges for readable contrast on pale surfaces */
+.theme-enhanced.theme-light .ei-badge.ign {
+  color: oklch(45% 0.14 70);
+  background: oklch(58% 0.16 70 / 0.16);
+}
+.theme-enhanced.theme-light .ei-badge.ab {
+  color: var(--fg-1);
+  background: var(--bg-3);
+}
+.theme-enhanced.theme-light .ei-dot.ign { background: oklch(52% 0.16 70); }
+
+.theme-enhanced.theme-light .vt-btn { color: var(--fg-1); }
+.theme-enhanced.theme-light .vt-btn:hover { color: var(--fg-0); }
+.theme-enhanced.theme-light .harness-project,
+.theme-enhanced.theme-light .acct-org { color: var(--fg-1); }
+.theme-enhanced.theme-light .acct-proj { color: var(--accent); }
+
+/* Logo — dark wordmark by default, swap on light surfaces */
+.harness-logo-img.logo-light,
+.app-menu-logo.logo-light { display: none; }
+body.vscode-light .harness-logo-img.logo-dark,
+body.vscode-light .app-menu-logo.logo-dark,
+body.vscode-high-contrast-light .harness-logo-img.logo-dark,
+body.vscode-high-contrast-light .app-menu-logo.logo-dark,
+body.theme-enhanced.theme-light .harness-logo-img.logo-dark,
+body.theme-enhanced.theme-light .app-menu-logo.logo-dark { display: none; }
+body.vscode-light .harness-logo-img.logo-light,
+body.vscode-light .app-menu-logo.logo-light,
+body.vscode-high-contrast-light .harness-logo-img.logo-light,
+body.vscode-high-contrast-light .app-menu-logo.logo-light,
+body.theme-enhanced.theme-light .harness-logo-img.logo-light,
+body.theme-enhanced.theme-light .app-menu-logo.logo-light { display: inline; }
+
+/* Enhanced app menu — token-based selection (fixes light-mode blue bar) */
+.theme-enhanced .app-menu {
+  background: var(--bg-1);
+  border-right-color: var(--line);
+}
+.theme-enhanced .app-menu-hdr { border-bottom-color: var(--line); }
+.theme-enhanced .app-menu-section { color: var(--fg-3); opacity: 1; }
+.theme-enhanced .app-menu-item { color: var(--fg-1); }
+.theme-enhanced .app-menu-item:hover { background: var(--bg-3); }
+.theme-enhanced .app-menu-label { color: var(--fg-0); }
+.theme-enhanced .app-menu-desc { color: var(--fg-3); }
+.theme-enhanced .app-menu-ico {
+  background: var(--bg-3);
+  color: var(--fg-1);
+  border: 1px solid var(--line-2);
+}
+.theme-enhanced .app-menu-item.on {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+}
+.theme-enhanced .app-menu-item.on .app-menu-label { color: var(--accent); }
+.theme-enhanced .app-menu-item.on .app-menu-desc { color: var(--fg-2); }
+.theme-enhanced .app-menu-item.on .app-menu-ico {
+  background: var(--bg-2);
+  color: var(--accent);
+  border-color: var(--accent-ring);
+}
+.theme-enhanced .app-menu-dot {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-ring);
+}
+.theme-enhanced .app-menu-item.account-item .account-ico {
+  background: var(--bg-3);
+  border-color: var(--line-2);
+  color: var(--fg-1);
+}
+.theme-enhanced .app-menu-item.account-item:hover .account-ico {
+  color: var(--accent);
+  border-color: var(--accent-ring);
+}
+.theme-enhanced .app-menu-chev { color: var(--fg-3); }
+.theme-enhanced .app-menu-item.account-item:hover .app-menu-chev { color: var(--accent); }
+.theme-enhanced .hdr-btn { color: var(--fg-2); }
+.theme-enhanced .hdr-btn:hover { color: var(--fg-0); background: var(--bg-3); }
+.theme-enhanced .menu-scrim { background: rgba(0, 0, 0, 0.45); }
+.theme-enhanced.theme-light .menu-scrim { background: rgba(20, 22, 28, 0.22); }
+
 /* ══════════════════════════════════════════════════════════════════
    SIMPLE THEME — Original design (default)
    ══════════════════════════════════════════════════════════════ */
 
 /* ── Harness header ───────────────────────────────── */
+/* One compact flat header bar — brand carried by the colored mark only.
+   flex-shrink:0 + min-height keep the bar from compressing when the panel
+   footer (AI split launcher) and scroll content compete for height. */
 .harness-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: linear-gradient(135deg, #00ADE4 0%, #0052CC 100%);
-  border-bottom: 1px solid rgba(0,0,0,0.15);
+  gap: 10px;
+  height: 50px;
+  min-height: 50px;
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  padding: 0 14px;
+  background: var(--vscode-sideBar-background);
+  border-bottom: 1px solid var(--vscode-panel-border);
 }
 .harness-logo-img {
-  height: 22px;
+  height: 21px;
   width: auto;
   flex-shrink: 0;
-  filter: brightness(0) invert(1);
+  filter: none;                 /* real teal mark, not white-on-blue */
 }
-.harness-subtitle {
+.harness-project {
+  flex: 1 1 auto;          /* fills the bar, pushing Switch + menu to the right */
+  font-size: 11px;
+  color: var(--vscode-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.harness-switch {
+  flex-shrink: 0;
   font-size: 10px;
-  font-weight: 500;
-  color: rgba(255,255,255,0.8);
-  letter-spacing: 0.4px;
-  border-left: 1px solid rgba(255,255,255,0.35);
-  padding-left: 8px;
-  margin-left: 2px;
-  line-height: 1;
-  flex: 1;
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-textLink-foreground);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 4px;
 }
+.harness-switch:hover { text-decoration: underline; }
 .header-menu-btn {
   background: transparent;
   border: none;
-  color: rgba(255,255,255,0.8);
+  color: var(--vscode-descriptionForeground);
   cursor: pointer;
   padding: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 3px;
+  flex-shrink: 0;
   transition: background 0.15s, color 0.15s;
 }
 .header-menu-btn:hover {
-  background: rgba(255,255,255,0.15);
-  color: rgba(255,255,255,1);
+  background: var(--vscode-toolbar-hoverBackground);
+  color: var(--vscode-foreground);
 }
-
-/* ── Project bar ──────────────────────────────────── */
-.project-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 12px;
-  background: var(--vscode-sideBar-background);
-  border-bottom: 1px solid var(--vscode-panel-border);
-}
-.project-bar-text {
-  font-size: 10px;
-  color: var(--vscode-descriptionForeground);
-  opacity: 0.85;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.project-bar-btn {
-  font-size: 9px;
-  font-family: var(--vscode-font-family);
-  color: var(--vscode-textLink-foreground);
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0 0 0 8px;
-  flex-shrink: 0;
-  opacity: 0.8;
-}
-.project-bar-btn:hover { opacity: 1; text-decoration: underline; }
 
 /* ── App menu ─────────────────────────────────────── */
 .menu-scrim {
@@ -1372,6 +1501,7 @@ body {
 /* ── View toggle tabs ─────────────────────────────── */
 .view-toggle {
   display: flex;
+  margin-top: 10px;         /* breathing room below the header bar */
   border-bottom: 1px solid var(--vscode-panel-border);
   background: var(--vscode-sideBar-background);
 }
@@ -1475,23 +1605,29 @@ body {
 }
 .pf-link:hover { text-decoration: underline; }
 
-/* ── History toolbar ──────────────────────────────── */
+/* ── History toolbar — two rows: status filters / modifiers ─────── */
 .hist-toolbar {
   padding: 6px 10px;
   background: var(--vscode-editor-background);
   border-bottom: 1px solid var(--vscode-panel-border);
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
   flex-shrink: 0;
-  flex-wrap: nowrap;
-  overflow-x: auto;
+  overflow-y: visible;      /* let popovers escape the toolbar vertically */
   position: relative;
-  z-index: 10;
+  z-index: 40;              /* toolbar (and its popovers) above the list */
 }
+.hist-row-status, .hist-row-mods { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.hist-row-mods { flex-wrap: wrap; }
+.hist-mods-spacer { flex: 1 1 auto; }
+
 .f-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 10px;
-  padding: 2px 5px;
+  padding: 2px 8px;
   border-radius: 8px;
   border: 1px solid var(--vscode-panel-border);
   background: transparent;
@@ -1503,23 +1639,50 @@ body {
   border-color: var(--vscode-focusBorder);
   color: var(--vscode-foreground);
 }
-.f-pill.on {
-  border-color: var(--vscode-charts-blue, #0078d4);
-  color: var(--vscode-editor-background);
-  background: var(--vscode-charts-blue, #0078d4);
-  font-weight: 600;
-}
-.f-sep {
-  flex: 1;
-}
-.f-cnt {
-  font-size: 10px;
-  color: var(--vscode-descriptionForeground);
-}
+.f-pill.on { font-weight: 600; }
+
+/* status color dot on each filter pill (All has none) */
+.f-pill .f-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+.f-failed  .f-dot { background: var(--vscode-charts-red,    #e5484d); }
+.f-success .f-dot { background: var(--vscode-charts-green,  #30a46c); }
+.f-waiting .f-dot { background: var(--vscode-charts-yellow, #e2b714); }
+
+/* active pill adopts its OWN status color, not a generic blue */
+.f-pill.f-all.on     { background: var(--vscode-charts-blue, #0078d4); border-color: var(--vscode-charts-blue, #0078d4); color: #fff; }
+.f-pill.f-failed.on  { background: color-mix(in srgb, var(--vscode-charts-red, #e5484d)    18%, transparent); border-color: var(--vscode-charts-red, #e5484d);    color: var(--vscode-charts-red, #e5484d); }
+.f-pill.f-success.on { background: color-mix(in srgb, var(--vscode-charts-green, #30a46c)  18%, transparent); border-color: var(--vscode-charts-green, #30a46c);  color: var(--vscode-charts-green, #30a46c); }
+.f-pill.f-waiting.on { background: color-mix(in srgb, var(--vscode-charts-yellow, #e2b714) 18%, transparent); border-color: var(--vscode-charts-yellow, #e2b714); color: var(--vscode-charts-yellow, #e2b714); }
+
+.f-sep { flex: 1; }
+.f-cnt { font-size: 10px; color: var(--vscode-descriptionForeground); }
 
 /* ── Execution list (history) ─────────────────────── */
 .exec-list-body {
-  /* Container for execution list items */
+  /* Container for execution list items — kept below the toolbar so range/sort
+     popovers render above the rows. min-height holds the panel's height across
+     loading→loaded so the view doesn't visibly resize after opening. */
+  position: relative;
+  z-index: 1;
+  min-height: 60vh;
+}
+
+/* ── Skeleton loading rows (reserve final height, no post-load jump) ── */
+.ei-skel { pointer-events: none; }
+.ei-skel .ei-dot { background: var(--vscode-panel-border); }
+.sk {
+  display: inline-block; height: 10px; border-radius: 3px;
+  background: linear-gradient(90deg, var(--vscode-panel-border) 25%, var(--vscode-editorWidget-background) 37%, var(--vscode-panel-border) 63%);
+  background-size: 400% 100%;
+  animation: sk-shimmer 1.2s ease-in-out infinite;
+}
+.sk-name { width: 60%; }
+.sk-badge { width: 54px; margin-left: auto; }
+.sk-git  { width: 78%; height: 9px; }
+.sk-foot { width: 45%; height: 9px; }
+@keyframes sk-shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+.theme-enhanced .sk {
+  background: linear-gradient(90deg, var(--bg-2) 25%, var(--bg-3) 37%, var(--bg-2) 63%);
+  background-size: 400% 100%;
 }
 
 .exec-item {
@@ -1572,31 +1735,31 @@ body {
   white-space: nowrap;
   color: var(--vscode-foreground);
 }
+/* Soft, tinted status badges (tint background + colored text) — calm, uniform. */
 .ei-badge {
   font-size: 9px;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 2px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 1px 6px;
+  border-radius: 4px;
   text-transform: uppercase;
   flex-shrink: 0;
 }
 .ei-badge.ok {
-  background: var(--vscode-charts-green, #388a34);
-  color: var(--vscode-editor-background);
-  opacity: 0.9;
+  background: color-mix(in srgb, var(--vscode-charts-green, #3fb950) 16%, transparent);
+  color: var(--vscode-charts-green, #3fb950);
 }
 .ei-badge.f {
-  background: var(--vscode-errorForeground, #f44747);
-  color: var(--vscode-editor-background);
+  background: color-mix(in srgb, var(--vscode-errorForeground, #f85149) 16%, transparent);
+  color: var(--vscode-errorForeground, #f85149);
 }
 .ei-badge.r {
-  background: var(--vscode-charts-blue, #0078d4);
-  color: var(--vscode-editor-background);
+  background: color-mix(in srgb, var(--vscode-charts-blue, #4a9eff) 16%, transparent);
+  color: var(--vscode-charts-blue, #4a9eff);
 }
 .ei-badge.ab {
-  background: var(--vscode-descriptionForeground);
-  color: var(--vscode-editor-background);
-  opacity: 0.5;
+  background: color-mix(in srgb, var(--vscode-descriptionForeground) 14%, transparent);
+  color: var(--vscode-descriptionForeground);
 }
 .ei-dur {
   font-size: 10px;
@@ -1635,33 +1798,82 @@ body {
   gap: 3px;
   flex-wrap: wrap;
 }
+/* Module tags render as quiet outline chips (see .ei-row .ei-tag). The old
+   filled per-module backgrounds are intentionally not used. */
 .ei-tag {
   font-size: 9px;
   padding: 1px 5px;
-  border-radius: 6px;
+  border-radius: 3px;
+  border: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
 }
-.et-ci {
-  background: var(--vscode-charts-blue, #0078d4);
-  color: var(--vscode-editor-background);
-  opacity: 0.9;
+
+/* ── Three-line execution row ───────────────────────────────────────
+   line 1 = name + status badge · line 2 = git context · line 3 = timing +
+   module chips. The status dot spans all three rows, vertically centered. */
+.ei-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  row-gap: 3px;
+  align-items: center;
+  padding: 10px 12px 11px 11px;
 }
-.et-cd {
-  background: var(--vscode-charts-green, #388a34);
-  color: var(--vscode-editor-background);
-  opacity: 0.9;
+/* Clip the row so a long name can never widen it past the panel. */
+.ei-row { overflow: hidden; }
+.ei-row .ei-dot { grid-column: 1; grid-row: 1 / span 3; align-self: center; margin-top: 0; width: 8px; height: 8px; }
+.ei-row .ei-body { display: contents; }  /* let the three lines sit directly on the grid */
+
+/* line 1 — name + badge. min-width:0 on the flex row lets the 1fr grid track
+   shrink so the name truncates with … on the right (badge keeps its size). */
+.ei-row .ei-top { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 6px; margin-bottom: 0; min-width: 0; overflow: hidden; }
+.ei-row .ei-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; }
+.ei-row .ei-badge { flex-shrink: 0; margin-left: auto; }
+
+/* line 2 — git context (has room; only branch ellipsizes) */
+.ei-row .ei-git {
+  grid-column: 2; grid-row: 2;
+  display: flex; align-items: center; gap: 7px;
+  min-width: 0; overflow: hidden;
+  font-family: var(--vscode-editor-font-family, monospace); font-size: 10.5px;
 }
-.et-sto {
-  background: var(--vscode-errorForeground, #f44747);
-  color: var(--vscode-editor-background);
+.ei-row .ei-git > * { flex-shrink: 0; }
+.ei-row .ei-sha { color: var(--vscode-textLink-foreground); }
+.ei-row .ei-branch { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-foreground); opacity: .85; }
+.ei-row .ei-author { color: var(--vscode-descriptionForeground); }
+.ei-row .ei-trig { display: inline-flex; align-items: center; gap: 5px; color: var(--vscode-descriptionForeground); }
+
+/* line 3 — timing + module chips (right-aligned, consistent edge) */
+.ei-row .ei-foot {
+  grid-column: 2; grid-row: 3;
+  display: flex; align-items: center; gap: 7px;
+  min-width: 0; overflow: hidden;
+  font-family: var(--vscode-editor-font-family, monospace); font-size: 10px;
+  color: var(--vscode-descriptionForeground);
 }
-.et-ti {
-  background: var(--vscode-charts-yellow, #e2b714);
-  color: var(--vscode-editor-background);
+.ei-row .ei-mods { flex-shrink: 0; }
+.ei-row .ei-time, .ei-row .ei-dur { display: inline-flex; align-items: center; gap: 4px; }
+.ei-row .ei-dur { font-variant-numeric: tabular-nums; }
+.ei-row .ei-foot svg { opacity: .6; }
+.ei-row .ei-mods { margin-left: auto; display: inline-flex; gap: 5px; }
+.ei-sep { opacity: .5; }
+
+/* module tags: quiet flat outline chips */
+.ei-row .ei-tag {
+  font-size: 8.5px; font-weight: 600; letter-spacing: .05em;
+  padding: 2px 6px; border-radius: 3px;
+  border: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
 }
-.et-aida {
-  background: var(--vscode-charts-purple, #8b5cf6);
-  color: var(--vscode-editor-background);
-  opacity: 0.9;
+
+/* Ignore-failed = failure-suppressed: amber warning, distinct from success
+   green and hard-failure red. */
+.ei-dot.ign   { background: var(--vscode-charts-yellow, #e2b714); opacity: 1; }
+.ei-badge.ign {
+  background: color-mix(in srgb, var(--vscode-charts-yellow, #e2b714) 16%, transparent);
+  color: var(--vscode-charts-yellow, #e2b714);
 }
 
 .empty-history {
@@ -1726,6 +1938,31 @@ body {
   color: var(--vscode-descriptionForeground);
   opacity: 0.6;
 }
+
+/* ── Load more footer (replaces the numbered pager) ─────────────── */
+.load-more {
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editor-background);
+}
+/* Quiet full-width text action; gains border/bg only on hover. */
+.load-more-btn {
+  width: 100%;
+  padding: 8px 0;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--vscode-textLink-foreground);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.load-more-btn:hover { background: var(--vscode-list-hoverBackground); border-color: var(--vscode-panel-border); }
+.load-more-btn:disabled { opacity: .6; cursor: default; }
+.load-more-btn .spinner { display: inline-block; animation: pulse 1.2s linear infinite; }
+.theme-enhanced .load-more-btn { color: var(--accent); background: transparent; }
+.theme-enhanced .load-more-btn:hover { background: var(--bg-1); border-color: var(--accent-ring); }
 
 /* ── Back navigation bar ──────────────────────────── */
 .back-bar {
@@ -2343,27 +2580,23 @@ a[data-action="openUrl"] { cursor: pointer; }
 }
 .opa-row-counts { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 
-/* OPA HTML tooltip */
+/* OPA HTML tooltip — position set in JS (fixed) to escape scroll clipping */
 .opa-tooltip-anchor { position: relative; cursor: default; }
 .opa-tooltip {
   display: none;
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
+  flex-direction: column;
   min-width: 260px;
   max-width: 320px;
   background: var(--vscode-editorWidget-background);
   border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.35);
-  z-index: 100;
-  pointer-events: none;
+  z-index: 1000;
+  pointer-events: none; /* pass clicks through to module tabs below */
   font-size: 11px;
-  overflow: hidden;
 }
-.opa-tooltip-anchor:hover .opa-tooltip { display: block; }
 .opa-tt-header {
+  flex-shrink: 0;
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
@@ -2371,6 +2604,11 @@ a[data-action="openUrl"] { cursor: pointer; }
   color: var(--vscode-descriptionForeground);
   padding: 6px 10px 5px;
   border-bottom: 1px solid var(--vscode-panel-border);
+}
+.opa-tt-list {
+  overflow-y: auto;
+  min-height: 0;
+  pointer-events: auto; /* scrollable body still receives hover/scroll */
 }
 .opa-tt-row {
   display: flex;
@@ -2404,6 +2642,20 @@ a[data-action="openUrl"] { cursor: pointer; }
 .opa-count-dim  { color: var(--vscode-descriptionForeground); opacity: 0.6; }
 .opa-link { margin-left: auto; color: var(--vscode-textLink-foreground); font-size: 11px; cursor: pointer; text-decoration: none; flex-shrink: 0; }
 .opa-link:hover { text-decoration: underline; }
+
+.theme-enhanced .opa-tooltip {
+  background: var(--bg-2);
+  border-color: var(--line-2);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
+}
+.theme-enhanced .opa-tt-header {
+  color: var(--fg-2);
+  border-bottom-color: var(--line);
+}
+.theme-enhanced .opa-tt-row { border-bottom-color: var(--line); }
+.theme-enhanced .opa-tt-name { color: var(--fg-0); }
+.theme-enhanced .opa-tt-msg { color: var(--fg-2); }
+.theme-enhanced .opa-row { overflow: visible; }
 
 /* ── FF section ───────────────────────────────────── */
 .ff-card {
@@ -2661,15 +2913,16 @@ a[data-action="openUrl"] { cursor: pointer; }
 
 /* ── Header ────────────────────────────────────────── */
 .theme-enhanced-dark .harness-header, .theme-enhanced-light .harness-header {
-  height: 40px;
+  height: 50px;
   background: var(--bg-base);
   border-bottom: 1px solid var(--outline-var);
   display: flex;
   align-items: center;
-  padding: 0 12px;
+  padding: 0 14px;
   gap: 10px;
   flex-shrink: 0;
 }
+.theme-enhanced-dark .harness-logo-img, .theme-enhanced-light .harness-logo-img { height: 21px; }
 
 .theme-enhanced-dark .harness-logo, .theme-enhanced-light .harness-logo {
   display: flex;
@@ -2685,12 +2938,19 @@ a[data-action="openUrl"] { cursor: pointer; }
   color: var(--primary);
 }
 
-.theme-enhanced-dark .harness-subtitle, .theme-enhanced-light .harness-subtitle {
-  font-size: 10px;
-  color: var(--outline);
+.theme-enhanced-dark .harness-project, .theme-enhanced-light .harness-project {
+  font-size: 11px;
+  color: var(--fg-1);
   font-family: var(--font-mono);
-  margin-left: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
+.theme-enhanced-dark .harness-project, .theme-enhanced-light .harness-project { flex: 1 1 auto; }
+.theme-enhanced-dark .harness-switch, .theme-enhanced-light .harness-switch {
+  flex-shrink: 0;
+  font-size: 10px; font-family: var(--font-sans);
+  color: var(--accent); background: none; border: none; cursor: pointer; padding: 0 4px;
+}
+.theme-enhanced-dark .harness-switch:hover, .theme-enhanced-light .harness-switch:hover { text-decoration: underline; }
 
 .theme-enhanced-dark .header-account, .theme-enhanced-light .header-account {
   font-size: 10px;
@@ -2741,6 +3001,7 @@ a[data-action="openUrl"] { cursor: pointer; }
   display: flex;
   align-items: center;
   height: 32px;
+  margin-top: 10px;         /* breathing room below the header bar */
   background: var(--bg-surface);
   border-bottom: 1px solid var(--outline-var);
   flex-shrink: 0;
@@ -3250,27 +3511,35 @@ a[data-action="openUrl"] { cursor: pointer; }
   flex-shrink: 0;
   margin-top: 4px;
 }
-.theme-enhanced-dark , .theme-enhanced-light .ei-dot.ok      { background: var(--success); }
-.theme-enhanced-dark , .theme-enhanced-light .ei-dot.failed  { background: var(--error); }
-.theme-enhanced-dark , .theme-enhanced-light .ei-dot.running { background: var(--primary); animation: pulse 1.4s infinite; }
-.theme-enhanced-dark , .theme-enhanced-light .ei-dot.aborted { background: var(--outline); }
+/* (dot colors defined below with the correct .ok/.f/.r/.ab/.ign classes) */
 
-.theme-enhanced-dark , .theme-enhanced-light .ei-name { font-size: 11px; font-weight: 600; color: var(--fg-3); }
+.theme-enhanced-dark .ei-name, .theme-enhanced-light .ei-name { font-size: 13px; font-weight: 600; color: var(--fg-0); }
 
 .theme-enhanced-dark .ei-badge, .theme-enhanced-light .ei-badge {
-  font-size: 8px;
-  font-weight: 700;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
-  padding: 1px 5px;
-  border-radius: 3px;
+  padding: 1px 6px;
+  border-radius: 4px;
 }
-.theme-enhanced-dark , .theme-enhanced-light .ei-badge.ok      { background: var(--success-bg); color: var(--success); }
-.theme-enhanced-dark , .theme-enhanced-light .ei-badge.failed  { background: var(--error-bg);   color: var(--error); }
-.theme-enhanced-dark , .theme-enhanced-light .ei-badge.running { background: var(--running-bg); color: var(--running); }
+/* Three-line row colors */
+.theme-enhanced-dark .ei-row .ei-sha, .theme-enhanced-light .ei-row .ei-sha  { color: var(--accent); }
+.theme-enhanced-dark .ei-row .ei-branch, .theme-enhanced-light .ei-row .ei-branch { color: var(--fg-1); opacity: 1; }
+.theme-enhanced-dark .ei-row .ei-trig, .theme-enhanced-light .ei-row .ei-trig { color: var(--fg-3); }
 
-.theme-enhanced-dark , .theme-enhanced-light .ei-meta { font-size: 10px; color: var(--outline); font-family: var(--font-mono); }
-.theme-enhanced-dark , .theme-enhanced-light .ei-sha  { color: var(--primary); }
-.theme-enhanced-dark , .theme-enhanced-light .ei-branch { color: var(--secondary); opacity: .8; font-family: var(--font-sans); }
+/* Dot + soft-tinted badge classes matching the JS (.ok/.f/.r/.ab/.ign).
+   Ignore-failed = calm teal (passed-with-warning), distinct from success/fail. */
+.theme-enhanced-dark .ei-dot.ok, .theme-enhanced-light .ei-dot.ok   { background: var(--success); }
+.theme-enhanced-dark .ei-dot.f, .theme-enhanced-light .ei-dot.f   { background: var(--error); }
+.theme-enhanced-dark .ei-dot.r, .theme-enhanced-light .ei-dot.r   { background: var(--primary); animation: pulse 1.4s infinite; }
+.theme-enhanced-dark .ei-dot.ab, .theme-enhanced-light .ei-dot.ab { background: var(--outline); }
+.theme-enhanced-dark .ei-dot.ign, .theme-enhanced-light .ei-dot.ign { background: #e2b714; opacity: 1; }
+.theme-enhanced-dark .ei-badge.ok, .theme-enhanced-light .ei-badge.ok   { background: var(--success-bg); color: var(--success); }
+.theme-enhanced-dark .ei-badge.f, .theme-enhanced-light .ei-badge.f     { background: var(--error-bg); color: var(--error); }
+.theme-enhanced-dark .ei-badge.r, .theme-enhanced-light .ei-badge.r     { background: var(--running-bg); color: var(--running); }
+.theme-enhanced-dark .ei-badge.ab, .theme-enhanced-light .ei-badge.ab   { background: var(--bg-3); color: var(--outline); }
+.theme-enhanced-dark .ei-badge.ign, .theme-enhanced-light .ei-badge.ign { background: color-mix(in srgb, #e2b714 18%, transparent); color: #e2b714; }
 
 .theme-enhanced-dark .ei-cur-tag, .theme-enhanced-light .ei-cur-tag {
   font-size: 9px;
@@ -3281,16 +3550,15 @@ a[data-action="openUrl"] { cursor: pointer; }
   border: 1px solid rgba(133,207,255,.2);
 }
 
-.theme-enhanced-dark .ei-tag, .theme-enhanced-light .ei-tag {
-  font-size: 9px;
-  padding: 1px 5px;
-  border-radius: 3px;
+/* Module tags: quiet flat outline chips (match base theme). */
+.theme-enhanced-dark .ei-row .ei-tag, .theme-enhanced-light .ei-row .ei-tag {
+  font-size: 8.5px; font-weight: 600; letter-spacing: .04em;
+  padding: 1px 5px; border-radius: 3px;
+  border: 1px solid var(--line-2); color: var(--fg-3); background: transparent;
 }
-.theme-enhanced-dark , .theme-enhanced-light .et-ci  { background: rgba(133,207,255,.1); color: var(--primary); }
-.theme-enhanced-dark , .theme-enhanced-light .et-cd  { background: var(--success-bg); color: var(--success); }
-.theme-enhanced-dark , .theme-enhanced-light .et-sto { background: var(--error-bg); color: var(--error); }
-.theme-enhanced-dark , .theme-enhanced-light .et-ti  { background: var(--warning-bg); color: var(--warning); }
-.theme-enhanced-dark , .theme-enhanced-light .et-aida { background: rgba(226,182,255,.1); color: var(--secondary); }
+.theme-enhanced-dark .ei-row .ei-author, .theme-enhanced-light .ei-row .ei-author,
+.theme-enhanced-dark .ei-row .ei-time, .theme-enhanced-light .ei-row .ei-time,
+.theme-enhanced-dark .ei-row .ei-dur, .theme-enhanced-light .ei-row .ei-dur { color: var(--fg-3); }
 
 /* ── Pagination ───────────────────────────────────── */
 .theme-enhanced-dark , .theme-enhanced-light .pag-bar,
@@ -3618,7 +3886,7 @@ a[data-action="openUrl"] { cursor: pointer; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -3653,14 +3921,14 @@ a[data-action="openUrl"] { cursor: pointer; }
 
 /* Pipeline search box */
 .theme-enhanced .pl-search-wrap {
-  padding: 12px;
+  padding: 8px 10px 6px;   /* match .hist-toolbar rhythm on the Executions tab */
   border-bottom: 1px solid var(--line);
 }
 
 .theme-enhanced .pl-search {
   width: 100%;
-  padding: 8px 12px 8px 36px;
-  font-size: 13px;
+  padding: 6px 12px 6px 32px;
+  font-size: 12px;
   background: var(--bg-1);
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -3669,7 +3937,7 @@ a[data-action="openUrl"] { cursor: pointer; }
   transition: all 0.15s;
   background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>');
   background-repeat: no-repeat;
-  background-position: 10px center;
+  background-position: 9px center;
 }
 
 .theme-enhanced .pl-search:focus {
@@ -3688,7 +3956,7 @@ a[data-action="openUrl"] { cursor: pointer; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -3740,7 +4008,7 @@ a[data-action="openUrl"] { cursor: pointer; }
 
 .theme-enhanced .pl-item .ei-name {
   font-size: 11.5px;
-  color: var(--fg-3);
+  color: var(--fg-0);
   font-weight: 600;
   margin-bottom: 3px;
 }
@@ -3784,11 +4052,16 @@ a[data-action="openUrl"] { cursor: pointer; }
 }
 
 .theme-enhanced .pl-tags {
-  font-size: 10px;
-  color: var(--fg-1);
-  margin-top: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
   margin-bottom: 6px;
-  opacity: 0.75;
+}
+.theme-enhanced .ei-tag {
+  border: 1px solid var(--line-2);
+  color: var(--fg-3);
+  background: transparent;
 }
 .theme-enhanced .pl-type {
   opacity: 0.6;
@@ -3821,10 +4094,12 @@ a[data-action="openUrl"] { cursor: pointer; }
 }
 
 .theme-enhanced .rs-ok { background: var(--ok); }
+.theme-enhanced .rs-ign { background: var(--warn); }   /* ignoreFailed = amber (matches Executions badge) */
 .theme-enhanced .rs-err { background: var(--err); }
 .theme-enhanced .rs-run { background: var(--accent); animation: pulse 1.5s infinite; }
-.theme-enhanced .rs-wait { background: var(--warn); }
-.theme-enhanced .rs-abort { background: var(--bg-4); }
+.theme-enhanced .rs-wait { background: oklch(70% 0.17 300); }   /* approval/waiting = purple (distinct from running-blue) */
+.theme-enhanced .rs-expired { background: oklch(68% 0.15 55); }        /* expired = orange */
+.theme-enhanced .rs-abort { background: var(--fg-3); opacity: 0.6; }   /* aborted = muted grey */
 .theme-enhanced .rs-pend { background: var(--bg-3); }
 
 
@@ -3899,9 +4174,9 @@ a[data-action="openUrl"] { cursor: pointer; }
   flex: 1;
   order: 1;
 }
-.pl-item .ei-name {
+.theme-simple .pl-item .ei-name {
   font-size: 11.5px;
-  color: var(--vscode-editor-foreground) !important;
+  color: var(--vscode-editor-foreground);
   font-weight: 600;
   margin-bottom: 3px;
 }
@@ -3910,12 +4185,13 @@ a[data-action="openUrl"] { cursor: pointer; }
   color: var(--vscode-descriptionForeground);
 }
 .pl-tags {
-  font-size: 10px;
-  color: var(--vscode-descriptionForeground);
-  margin-top: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
   margin-bottom: 6px;
-  opacity: 0.75;
 }
+.pl-tag-more { opacity: 0.7; }
 .pl-type { opacity: 0.6; font-weight: normal; }
 .pl-search { width: 100%; padding: 6px; border: 1px solid var(--vscode-panel-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); }
 .hist-count-chip {
@@ -3923,7 +4199,13 @@ a[data-action="openUrl"] { cursor: pointer; }
   color: var(--vscode-descriptionForeground);
   white-space: nowrap;
   flex-shrink: 0;
+  margin-left: 4px;
+  padding-left: 8px;
+  border-left: 1px solid var(--vscode-panel-border);
 }
+/* Row-2 modifier trio stays tight and pinned right (single spacer does the push). */
+.hist-row-mods .hist-sort-wrap,
+.hist-row-mods .hist-range-wrap { flex-shrink: 0; }
 .sort-btn { display: flex; align-items: center; gap: 3px; padding: 4px 6px; font-size: 11px; background: var(--vscode-button-secondaryBackground); border: 1px solid var(--vscode-panel-border); border-radius: 3px; cursor: pointer; white-space: nowrap; }
 .sort-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
 .rs-strip { display: flex; gap: 2px; margin-top: 2px; }
@@ -3934,10 +4216,12 @@ a[data-action="openUrl"] { cursor: pointer; }
   opacity: 0.45;
 }
 .rs-ok { background: var(--vscode-testing-iconPassed, var(--vscode-charts-green, oklch(68% 0.14 150))); }
+.rs-ign { background: var(--vscode-charts-yellow, #e2b714); }   /* ignoreFailed = amber (matches Executions badge) */
 .rs-err { background: var(--vscode-testing-iconFailed, var(--vscode-errorForeground, oklch(62% 0.18 28))); }
 .rs-run { background: var(--vscode-charts-blue, var(--vscode-textLink-foreground)); }
-.rs-wait { background: var(--vscode-charts-yellow, oklch(74% 0.13 75)); }
-.rs-abort { background: var(--vscode-descriptionForeground, oklch(60% 0.01 260)); opacity: 0.5; }
+.rs-wait { background: var(--vscode-charts-purple, #8250df); }   /* approval/waiting = purple (needs a human) */
+.rs-expired { background: var(--vscode-charts-orange, #cc6d00); }   /* expired = orange (timed out) */
+.rs-abort { background: var(--vscode-descriptionForeground, #6c757d); opacity: 0.55; }   /* aborted = muted grey (stopped) */
 .rs-pend { background: var(--vscode-panel-border); }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -3961,6 +4245,15 @@ a[data-action="openUrl"] { cursor: pointer; }
   flex-wrap: wrap;
   min-width: 0;
 }
+
+/* Color-coded status filters — enhanced theme tokens */
+.theme-enhanced .f-failed  .f-dot { background: var(--err); }
+.theme-enhanced .f-success .f-dot { background: var(--ok); }
+.theme-enhanced .f-waiting .f-dot { background: var(--warn); }
+.theme-enhanced .f-pill.f-all.on     { background: var(--accent); border-color: var(--accent); color: var(--bg-0, #fff); }
+.theme-enhanced .f-pill.f-failed.on  { background: color-mix(in srgb, var(--err) 18%, transparent);  border-color: var(--err);  color: var(--err); }
+.theme-enhanced .f-pill.f-success.on { background: color-mix(in srgb, var(--ok) 18%, transparent);   border-color: var(--ok);   color: var(--ok); }
+.theme-enhanced .f-pill.f-waiting.on { background: color-mix(in srgb, var(--warn) 18%, transparent); border-color: var(--warn); color: var(--warn); }
 
 /* Current-commit pill (extends .f-pill) */
 .theme-enhanced .f-pill.commit-pill {
@@ -4116,10 +4409,11 @@ a[data-action="openUrl"] { cursor: pointer; }
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   flex-shrink: 0;
-  margin-left: auto;
-  padding: 0 4px 0 6px;
+  margin-left: 4px;
+  padding: 0 2px 0 8px;
   background: transparent;
   border-radius: 0;
+  border-left: 1px solid var(--line-2, var(--outline-var));
 }
 .theme-enhanced .hist-count-chip .hc-n { color: var(--fg-0, var(--fg)); font-weight: 500; }
 .theme-enhanced .hist-count-chip .hc-sep { opacity: 0.4; }
@@ -4183,7 +4477,7 @@ a[data-action="openUrl"] { cursor: pointer; }
 }
 
 /* Simple theme fallback */
-.hist-sort-wrap { position: relative; display: inline-flex; z-index: 1; }
+.hist-sort-wrap { position: relative; display: inline-flex; z-index: 41; }
 .hist-sort-btn {
   width: 22px; height: 22px;
   background: var(--vscode-button-secondaryBackground);
@@ -4229,6 +4523,50 @@ a[data-action="openUrl"] { cursor: pointer; }
   padding: 4px 8px 2px; font-size: 10px; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.06em;
 }
 .hist-sort-menu .menu-div { height: 1px; background: var(--vscode-panel-border); margin: 3px 0; }
+
+/* ── Time-range control (mirrors the sort menu) ─────────────────── */
+.hist-range-wrap { position: relative; display: inline-flex; z-index: 41; }
+.hist-range-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 22px; padding: 0 8px;
+  background: var(--vscode-button-secondaryBackground);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 3px;
+  color: var(--vscode-foreground);
+  font-size: 10.5px; cursor: pointer;
+}
+.hist-range-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
+.hist-range-btn.modified { border-color: var(--vscode-focusBorder); }
+.hist-range-btn .caret { opacity: 0.6; font-size: 8px; }
+.hist-range-scrim { position: fixed; inset: 0; z-index: 100; }
+.hist-range-menu {
+  position: fixed; z-index: 101;   /* fixed → escapes the scrollable list clip */
+  min-width: 160px;
+  background: var(--vscode-menu-background, var(--vscode-editor-background));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+  box-shadow: 0 6px 18px rgba(0,0,0,0.3);
+  padding: 3px;
+}
+.hist-range-opt {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 5px 8px;
+  background: transparent; border: none; width: 100%;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  font-size: 12px; cursor: pointer; text-align: left;
+}
+.hist-range-opt:hover {
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+  color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
+}
+.hist-range-opt.selected { font-weight: 600; }
+.hist-range-opt .ck { color: var(--vscode-textLink-foreground); }
+.hist-range-menu .menu-div { height: 1px; background: var(--vscode-panel-border); margin: 3px 0; }
+.theme-enhanced .hist-range-btn { background: var(--bg-1); color: var(--fg-1); }
+.theme-enhanced .hist-range-btn.modified { border-color: var(--accent-ring); color: var(--accent); }
+.theme-enhanced .hist-range-menu { background: var(--bg-2); border-color: var(--line-2); }
+.theme-enhanced .hist-range-opt { color: var(--fg-1); }
+.theme-enhanced .hist-range-opt:hover { background: var(--bg-3); }
+.theme-enhanced .hist-range-opt .ck { color: var(--accent); }
 .f-pill.commit-pill .check-glyph {
   width: 11px; height: 11px;
   border: 1px solid var(--vscode-panel-border);
@@ -4321,4 +4659,241 @@ a[data-action="openUrl"] { cursor: pointer; }
 
 .theme-enhanced .sort-btn span:first-child {
   opacity: 0.6;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   ENHANCED — IDE token isolation
+   Base styles above use --vscode-* for simple theme. These overrides
+   come last so enhanced mode always uses the fixed Harness palette,
+   regardless of Cursor/VS Code/custom theme colors.
+   ══════════════════════════════════════════════════════════════ */
+
+body.theme-enhanced {
+  background: var(--bg-0);
+  color: var(--fg-0);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.theme-enhanced .harness-header {
+  background: var(--bg-0);
+  border-bottom-color: var(--line);
+}
+.theme-enhanced .harness-project { color: var(--fg-1); }
+.theme-enhanced .harness-switch { color: var(--accent); font-family: var(--font-sans); }
+.theme-enhanced .header-menu-btn { color: var(--fg-2); }
+.theme-enhanced .header-menu-btn:hover {
+  background: var(--bg-3);
+  color: var(--fg-0);
+}
+
+.theme-enhanced .back-bar {
+  padding: 5px 12px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+}
+.theme-enhanced .back-btn {
+  color: var(--accent);
+  font-family: var(--font-sans);
+}
+.theme-enhanced .back-btn:hover { background: var(--accent-soft); }
+.theme-enhanced .bc { color: var(--fg-2); }
+.theme-enhanced .bc span { color: var(--fg-0); }
+
+.theme-enhanced .adj-bar {
+  padding: 5px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-1);
+}
+.theme-enhanced .adj-btn {
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  background: var(--bg-2);
+  color: var(--fg-2);
+  font-family: var(--font-sans);
+}
+.theme-enhanced .adj-btn:hover:not(.off) {
+  background: var(--bg-3);
+  border-color: var(--accent-ring);
+  color: var(--fg-1);
+}
+.theme-enhanced .adj-lbl { color: var(--fg-3); opacity: 1; }
+.theme-enhanced .adj-mid { color: var(--fg-3); }
+.theme-enhanced .adj-n.ok { color: var(--ok); }
+.theme-enhanced .adj-n.f  { color: var(--err); }
+.theme-enhanced .adj-n.r  { color: var(--run); }
+
+/* Beat base .step-row / .stage-row vscode hover & selection (defined earlier) */
+.theme-enhanced .step-row,
+.theme-enhanced button.step-row {
+  color: inherit;
+}
+.theme-enhanced .step-row.step-clickable:hover,
+.theme-enhanced button.step-row:hover {
+  background: var(--bg-2);
+}
+.theme-enhanced .step-row.on,
+.theme-enhanced button.step-row.on {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.theme-enhanced .step-row.on .step-name { color: var(--accent); }
+
+.theme-enhanced .stage-row.active {
+  background: transparent;
+  color: inherit;
+  border-left: none;
+  padding-left: 10px;
+}
+.theme-enhanced .stage-row.active .stage-dur { color: var(--fg-3); opacity: 1; }
+
+.theme-enhanced .app-menu {
+  background: var(--bg-2);
+  border-right-color: var(--line);
+}
+.theme-enhanced .menu-scrim { background: rgba(0, 0, 0, 0.55); }
+
+.theme-enhanced .hist-sort-btn,
+.theme-enhanced .hist-range-btn {
+  background: var(--bg-2);
+  border-color: var(--line-2);
+  color: var(--fg-1);
+}
+.theme-enhanced .hist-sort-btn:hover,
+.theme-enhanced .hist-range-btn:hover {
+  background: var(--bg-3);
+  border-color: var(--accent-ring);
+}
+.theme-enhanced .hist-sort-menu {
+  background: var(--bg-2);
+  border-color: var(--line-2);
+}
+.theme-enhanced .hist-sort-opt:hover {
+  background: var(--bg-3);
+  color: var(--fg-0);
+}
+.theme-enhanced .hist-sort-menu .menu-div {
+  background: var(--line);
+}
+
+/* View toggle — base .vt-btn rules come later and were winning the cascade */
+.theme-enhanced .vt {
+  background: var(--bg-1);
+  border-bottom-color: var(--line);
+}
+.theme-enhanced .vt-btn {
+  background: transparent;
+  color: var(--fg-2);
+  border-bottom: 2px solid transparent;
+}
+.theme-enhanced .vt-btn:hover {
+  background: var(--bg-2);
+  color: var(--fg-1);
+}
+.theme-enhanced .vt-btn.on {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: var(--accent-soft);
+}
+.theme-enhanced .vt-pin { color: var(--fg-3); }
+.theme-enhanced .vt-pin.on { color: var(--accent); }
+
+/* Pagination bar */
+.theme-enhanced .pag {
+  background: var(--bg-1);
+  border-top-color: var(--line);
+}
+.theme-enhanced .pg-btn {
+  background: var(--bg-2);
+  border-color: var(--line-2);
+  color: var(--fg-2);
+}
+.theme-enhanced .pg-btn:hover:not(:disabled) {
+  background: var(--bg-3);
+  border-color: var(--accent-ring);
+  color: var(--fg-1);
+}
+.theme-enhanced .pg-num {
+  color: var(--fg-2);
+}
+.theme-enhanced .pg-num:hover {
+  background: var(--bg-3);
+  color: var(--fg-0);
+}
+.theme-enhanced .pg-num.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-ring);
+  font-weight: 600;
+}
+.theme-enhanced .pg-info {
+  color: var(--fg-3);
+  opacity: 1;
+}
+
+/* Pipeline list cards */
+.theme-enhanced .pl-item {
+  background: var(--bg-1);
+  border-color: var(--line);
+}
+.theme-enhanced .pl-item:hover {
+  background: var(--bg-2);
+  border-color: var(--line-2);
+}
+.theme-enhanced .pl-item.exec-item {
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+}
+.theme-enhanced .pl-item .ei-name {
+  color: var(--fg-0);
+}
+.theme-enhanced .pl-item .ei-meta {
+  color: var(--fg-2);
+}
+.theme-enhanced .pl-icon {
+  color: var(--fg-2);
+}
+.theme-enhanced .pl-pin {
+  color: var(--fg-2);
+}
+.theme-enhanced .pl-pin.on {
+  color: var(--accent);
+}
+.theme-enhanced .pl-search-wrap {
+  border-bottom-color: var(--line);
+}
+.theme-enhanced .hist-count-chip {
+  color: var(--fg-2);
+  border-left-color: var(--line);
+}
+
+/* Execution list rows (executions tab) */
+.theme-enhanced .exec-item {
+  background: var(--bg-1);
+  border-bottom-color: var(--line);
+}
+.theme-enhanced .exec-item:hover {
+  background: var(--bg-2);
+}
+.theme-enhanced .ei-name {
+  color: var(--fg-0);
+}
+.theme-enhanced .ei-meta,
+.theme-enhanced .ei-sub {
+  color: var(--fg-2);
+}
+
+/* Load more footer (executions list) */
+.theme-enhanced .load-more {
+  background: var(--bg-1);
+  border-top-color: var(--line);
+}
+.theme-enhanced .load-more-btn {
+  color: var(--accent);
+  background: transparent;
+  border-color: transparent;
+}
+.theme-enhanced .load-more-btn:hover:not(:disabled) {
+  background: var(--bg-2);
+  border-color: var(--accent-ring);
 }

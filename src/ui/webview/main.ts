@@ -38,8 +38,10 @@ function getStateFingerprint(): string {
     state.menuOpen.toString(),
     // AI state
     state.aiShowToolPicker.toString(),
+    state.aiDestination,
     state.aiState,
     state.aiOverlay || '',
+    state.activeDetailTab,
   ];
 
   // Add execution state with detailed stage/step tracking
@@ -191,7 +193,7 @@ interface DeployStage {
   blocked?: boolean;
   skipReason?: string;
   services: { name: string; identifier?: string; version: string; kind: string; manifests?: string[] }[];
-  envs: { name: string; infraName?: string; type?: string; status: string; deployedAt?: string }[];
+  envs: { name: string; infraName?: string; type?: string; status: string; deployedAt?: string; url?: string }[];
 }
 
 interface UnitProgress {
@@ -222,6 +224,8 @@ interface StepInfo {
   nodeId?: string;       // graph node key — used to correlate LOG_CHUNK messages
   logBaseKey?: string;   // passed to log-service to fetch logs
   stepType?: string;     // step type (e.g., HarnessApproval, JiraApproval, ServiceNowApproval)
+  identifier?: string;   // YAML step identifier — used to detect agent steps
+  parentGroupName?: string; // name of the enclosing STEP_GROUP, if any
 }
 
 interface ExecGraph {
@@ -359,6 +363,12 @@ const state = {
   sortMenuPos: { top: 0, left: 0 } as { top: number; left: number }, // menu position for fixed positioning
   filteredPipelineId: null as string | null, // when set, show only executions for this pipeline
   detailExecId:  null as string | null, // planExecutionId of execution being viewed in detail mode
+  loadingMore: false as boolean, // true while a "Load more" append fetch is in flight
+  // Executions time-range control. Values are the exact enums the summary API
+  // accepts (verified); 'ALL' means "omit the time filter" server-side.
+  historyRange: 'LAST_24_HOURS' as 'LAST_24_HOURS' | 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'LAST_3_MONTHS' | 'LAST_12_MONTHS' | 'ALL',
+  rangeMenuOpen: false as boolean,
+  rangeMenuPos: { top: 0, left: 0 } as { top: number; left: number }, // fixed-position coords (escape scroll clip)
 
   // Loading states
   loadingSteps:  new Set<string>(), // nodeIds currently loading logs
@@ -371,7 +381,7 @@ const state = {
   viewModeInitialized: false, // track if viewMode was initialized from defaultView
 
   // Log viewer preference (FME)
-  logViewerVariation: 'inline' as 'inline' | 'expanded' | 'drawer',
+  logViewerVariation: 'expanded' as 'inline' | 'expanded' | 'drawer',
 
   // Webview theme (FME vscode-bar-experience flag + IDE theme detection)
   webviewTheme: 'simple' as 'simple' | 'enhanced', // from FME flag
@@ -388,7 +398,8 @@ const state = {
   aiState: 'detecting' as 'detecting' | 'none' | 'unconfigured' | 'ready' | 'sending' | 'error',
   aiQuestion: '',
   aiShowToolPicker: false,
-  aiOverlay: null as 'mcp-setup' | 'mcp-existing' | 'mcp-conflict' | 'mcp-done' | 'response' | 'launched' | null,
+  aiDestination: 'harness' as 'harness' | 'external', // AI footer: native launcher vs external tool
+  aiOverlay: null as 'mcp-setup' | 'mcp-existing' | 'mcp-conflict' | 'mcp-pat-warning' | 'mcp-done' | 'response' | 'launched' | null,
   aiMcpConfiguring: false,
   aiMcpSetupScope: 'project' as 'project' | 'global',          // NEW — which radio is selected
   aiMcpDoneScope: null as 'project' | 'global' | null,         // NEW — which scope was just written (for the toast)
@@ -411,12 +422,12 @@ function calculatePageSize(): number {
   const viewportHeight = window.innerHeight;
 
   // Fixed element heights (more accurate measurements)
-  const headerHeight = 56;        // Harness header (blue gradient)
-  const projectBarHeight = 34;    // Project bar
-  const viewToggleHeight = 40;    // Tab switcher
+  const headerHeight = 50;        // Harness header (flat compact bar) — keep in sync with .harness-header
+  const projectBarHeight = 0;     // Project folded into the header bar
+  const viewToggleHeight = 56;    // Tab switcher (44px bar + 12px margin-top)
   const toolbarHeight = 48;       // Filter toolbar + "100 runs" line
   const paginationHeight = 36;    // Pagination bar
-  const pinFooterHeight = 28;     // Pin footer hint
+  const pinFooterHeight = 0;      // Pin footer banner removed (pin lives on tab)
   const aiFooterHeight = 48;      // AI input bar
 
   const fixedHeight = headerHeight + projectBarHeight + viewToggleHeight +
@@ -441,10 +452,10 @@ function calculatePageSize(): number {
  * Decision table:
  *   FF treatment  | IDE theme           | Result
  *   ------------- | ------------------- | -----------------------
- *   enhanced      | Dark (2)            | .theme-enhanced-dark
- *   enhanced      | Light (1)           | .theme-enhanced-light
- *   enhanced      | HighContrast (3)    | .theme-enhanced-dark
- *   enhanced      | HC Light (4)        | .theme-enhanced-light
+ *   enhanced      | Dark (2)            | .theme-enhanced.theme-dark
+ *   enhanced      | Light (1)           | .theme-enhanced.theme-light
+ *   enhanced      | HighContrast (3)    | .theme-enhanced.theme-dark
+ *   enhanced      | HC Light (4)        | .theme-enhanced.theme-light
  *   simple        | any                 | .theme-simple
  */
 function applyEffectiveTheme(): void {
@@ -513,7 +524,7 @@ window.addEventListener('message', ({ data: msg }) => {
         console.log('[Webview] Fetching data for view:', state.viewMode);
         if (state.viewMode === 'executions') {
           state.loadingExecution = true;
-          vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId });
+          vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId, range: state.historyRange });
         } else if (state.viewMode === 'pipelines') {
           state.loadingPipelines = true;
           vscode.postMessage({ type: 'fetchPipelines' });
@@ -553,6 +564,8 @@ window.addEventListener('message', ({ data: msg }) => {
         console.log('[Webview] AI chat enabled:', state.aiChatEnabled);
       }
 
+      applyEffectiveTheme();
+
       // If org/project changed, clear state and refetch data
       if (orgChanged || projectChanged) {
         console.log('[Webview] Org/project changed, refetching data');
@@ -566,7 +579,7 @@ window.addEventListener('message', ({ data: msg }) => {
         // Fetch fresh data for current view
         if (state.viewMode === 'executions') {
           state.loadingExecution = true;
-          vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId });
+          vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId, range: state.historyRange });
         } else if (state.viewMode === 'pipelines') {
           state.loadingPipelines = true;
           vscode.postMessage({ type: 'fetchPipelines' });
@@ -844,17 +857,23 @@ window.addEventListener('message', ({ data: msg }) => {
       scheduleRender(true);
       return;
 
-    case 'HISTORY_LIST':
-      console.log('[Webview] HISTORY_LIST received', { count: msg.executions?.length, total: msg.total });
+    case 'HISTORY_LIST': {
+      console.log('[Webview] HISTORY_LIST received', { count: msg.executions?.length, total: msg.total, page: msg.page });
       state.loadingExecution = false; // History data arrived
-      state.historyList = (msg.executions ?? []).map((item: any) => ({
+      state.loadingMore = false;
+      const incoming = (msg.executions ?? []).map((item: any) => ({
         ...item,
         isCurrentCommit: item.isCurrentCommit ?? false,
       }));
+      // Append on later pages (Load more); replace on a fresh page 0.
+      state.historyList = (msg.page && msg.page > 0)
+        ? [...state.historyList, ...incoming]
+        : incoming;
       state.historyTotal = msg.total ?? state.historyList.length;
       // Force immediate render for history list updates (user-triggered)
       scheduleRender(true);
       return; // Skip the scheduleRender at the end
+    }
 
     case 'HISTORY_DETAIL': {
       state.loadingExecution = false; // Execution detail arrived
@@ -1024,7 +1043,7 @@ window.addEventListener('message', ({ data: msg }) => {
           // Fetch data for current view
           if (state.viewMode === 'executions') {
             state.loadingExecution = true;
-            vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId });
+            vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId, range: state.historyRange });
           } else if (state.viewMode === 'pipelines') {
             state.loadingPipelines = true;
             vscode.postMessage({ type: 'fetchPipelines' });
@@ -1044,6 +1063,10 @@ window.addEventListener('message', ({ data: msg }) => {
         } else {
           state.aiState = 'ready';
         }
+      }
+      // Restore the persisted AI footer destination (harness vs external)
+      if (msg.aiDestination !== undefined) {
+        state.aiDestination = msg.aiDestination;
       }
       scheduleRender(true); // Force immediate render for state changes
       return; // Skip the scheduleRender at the end
@@ -1370,7 +1393,8 @@ function collectSteps(
   nodeMap: Record<string, GraphNode>,
   adjList: Record<string, { children?: string[]; nextIds?: string[] }>,
   depth: number,
-  visited: Set<string>
+  visited: Set<string>,
+  parentGroupName?: string
 ): StepInfo[] {
   if (depth > 15 || visited.has(nodeId)) return [];
   visited.add(nodeId);
@@ -1385,6 +1409,10 @@ function collectSteps(
   const children = [...(adj.children ?? [])];
   const nextIds  = [...(adj.nextIds ?? [])];
 
+  // Capture step group name to pass into children
+  const isStepGroup = node.stepType === 'STEP_GROUP' || node.stepType === 'CI_STEP_GROUP';
+  const groupNameForChildren = isStepGroup ? (node.name || parentGroupName) : parentGroupName;
+
   if (!CONTAINER_TYPES.has(node.stepType ?? '') && node.name) {
     // Leaf step — emit it, then follow sequential chain (but not into other stages)
     const step: StepInfo = {
@@ -1395,14 +1423,16 @@ function collectSteps(
       nodeId,
       logBaseKey: node.logBaseKey,
       stepType: node.stepType,
+      identifier: node.identifier,
+      parentGroupName,
     };
-    const rest = nextIds.flatMap(id => collectSteps(id, nodeMap, adjList, depth + 1, visited));
+    const rest = nextIds.flatMap(id => collectSteps(id, nodeMap, adjList, depth + 1, visited, parentGroupName));
     return [step, ...rest];
   }
 
   // Container — drill into children and follow next chain
-  const fromChildren = children.flatMap(id => collectSteps(id, nodeMap, adjList, depth + 1, visited));
-  const fromNext     = nextIds.flatMap(id => collectSteps(id, nodeMap, adjList, depth + 1, visited));
+  const fromChildren = children.flatMap(id => collectSteps(id, nodeMap, adjList, depth + 1, visited, groupNameForChildren));
+  const fromNext     = nextIds.flatMap(id => collectSteps(id, nodeMap, adjList, depth + 1, visited, parentGroupName));
   return [...fromChildren, ...fromNext];
 }
 
@@ -1619,7 +1649,7 @@ function build(): string {
     parts.push(historyListView());
     parts.push(`</div>`);
     parts.push(`<div class="panel-footer">`);
-    parts.push(paginationBar());
+    parts.push(loadMoreFooter());
     parts.push(pinFooter());
     if (state.aiChatEnabled) {
       parts.push(aiFooter());
@@ -1648,7 +1678,20 @@ function build(): string {
 
 // ── Harness header ─────────────────────────────────────────────────────────
 declare const __HARNESS_LOGO__: string;
+declare const __HARNESS_LOGO_LIGHT__: string;
 declare const __THEME_VARIATION__: string;
+
+/** Renders dark + light logo imgs; CSS toggles visibility by IDE theme. */
+function harnessLogoMarkup(imgClass: string): string {
+  const dark = typeof __HARNESS_LOGO__ !== 'undefined' ? __HARNESS_LOGO__ : '';
+  const light = typeof __HARNESS_LOGO_LIGHT__ !== 'undefined' ? __HARNESS_LOGO_LIGHT__ : '';
+  if (!dark && !light) return '';
+  const parts: string[] = [];
+  if (dark) parts.push(`<img class="${imgClass} logo-dark" src="${esc(dark)}" alt="Harness" />`);
+  if (light) parts.push(`<img class="${imgClass} logo-light" src="${esc(light)}" alt="Harness" />`);
+  return parts.join('');
+}
+
 function harnessHeader(org?: string, project?: string): string {
   // Menu button (3-dots icon)
   const menuButton = `<button class="header-menu-btn" data-action="toggleMenu" aria-label="Open menu">
@@ -1659,37 +1702,15 @@ function harnessHeader(org?: string, project?: string): string {
     </svg>
   </button>`;
 
-  // Enhanced theme uses the same blue gradient header as simple theme
-  if (state.webviewTheme === 'enhanced') {
-    const logoUrl = typeof __HARNESS_LOGO__ !== 'undefined' ? __HARNESS_LOGO__ : '';
-    const projectBar = (org || project)
-      ? `<div class="project-bar">
-          <span class="project-bar-text">${org ? esc(org) : ''}${org && project ? ' / ' : ''}${project ? esc(project) : ''}</span>
-          <button class="project-bar-btn" data-action="selectProject">Switch</button>
-        </div>`
-      : '';
-    return `<div class="harness-header">
-      ${logoUrl ? `<img class="harness-logo-img" src="${esc(logoUrl)}" alt="Harness" />` : ''}
-      <span class="harness-subtitle">AI for Everything After Code</span>
-      ${menuButton}
-    </div>
-    ${projectBar}`;
-  }
-
-  // Simple theme header: Harness logo + subtitle + menu button + project bar
-  const logoUrl = typeof __HARNESS_LOGO__ !== 'undefined' ? __HARNESS_LOGO__ : '';
-  const projectBar = (org || project)
-    ? `<div class="project-bar">
-        <span class="project-bar-text">${org ? esc(org) : ''}${org && project ? ' / ' : ''}${project ? esc(project) : ''}</span>
-        <button class="project-bar-btn" data-action="selectProject">Switch</button>
-      </div>`
-    : '';
+  // One compact flat bar: Harness mark + org / project + Switch + menu.
+  // No blue gradient, no tagline, no separate project strip.
+  const projText = `${org ? esc(org) : ''}${org && project ? ' / ' : ''}${project ? esc(project) : ''}`;
   return `<div class="harness-header">
-    ${logoUrl ? `<img class="harness-logo-img" src="${esc(logoUrl)}" alt="Harness" />` : ''}
-    <span class="harness-subtitle">AI for Everything After Code</span>
+    ${harnessLogoMarkup('harness-logo-img')}
+    ${projText ? `<span class="harness-project">${projText}</span>` : ''}
+    ${(org || project) ? `<button class="harness-switch" data-action="selectProject">Switch</button>` : ''}
     ${menuButton}
-  </div>
-  ${projectBar}`;
+  </div>`;
 }
 
 // ── App Menu ───────────────────────────────────────────────────────────────
@@ -1718,13 +1739,11 @@ function appMenu(): string {
     ? 'Change org &amp; project'
     : 'Connect your Harness account';
 
-  const logoUrl = typeof __HARNESS_LOGO__ !== 'undefined' ? __HARNESS_LOGO__ : '';
-
   return `${state.menuOpen ? '<div class="menu-scrim" data-action="closeMenu"></div>' : ''}
     <aside class="app-menu ${state.menuOpen ? 'is-open' : ''}">
       <div class="app-menu-hdr">
         <div class="app-menu-brand">
-          ${logoUrl ? `<img class="app-menu-logo" src="${esc(logoUrl)}" alt="Harness" />` : ''}
+          ${harnessLogoMarkup('app-menu-logo')}
         </div>
         <button class="hdr-btn" data-action="closeMenu" aria-label="Close menu">
           <svg width="12" height="12" viewBox="0 0 12 12">
@@ -1755,15 +1774,8 @@ function appMenu(): string {
 
 // ── Pin footer ────────────────────────────────────────────────────────────
 function pinFooter(): string {
-  if (!state.pinnedView) {
-    return '';
-  }
-  const label = state.pinnedView === 'executions' ? 'Executions' : 'Pipelines';
-  return `<div class="pin-footer">
-    <span class="pf-icon">📌</span>
-    <span>"${esc(label)}" opens by default</span>
-    <span class="pf-link" data-action="openPinSettings">Change in settings</span>
-  </div>`;
+  // Pin now lives on the view tab (vt-pin). Banner removed to declutter the footer.
+  return '';
 }
 
 // ── AI Bar (Harness MCP integration) ──────────────────────────────────────
@@ -1848,6 +1860,11 @@ function infoIcon(): string {
   return `<svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.6" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M6 5.4 L6 8.2 M6 3.8 L6 4.0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`;
 }
 
+// Harness diamond icon for the Intelligence Chat button in the AI footer bar
+function harnessIntelligenceIcon(): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="m13.905 5.621-3.487-3.51a4 4 0 0 0-1.443-.879c-1.194-.4-2.383-.094-3.349.865l-3.515 3.49a4 4 0 0 0-.878 1.445c-.402 1.193-.095 2.383.865 3.347l3.49 3.51c.413.393.905.693 1.443.879.326.111.668.169 1.012.171.84.003 1.645-.35 2.336-1.036l3.51-3.49c.392-.414.692-.906.879-1.445.4-1.193.094-2.381-.866-3.347zm-5.621-2.5c.264.085.507.225.714.41l1.031 1.04-2.022 2.01-2.012-2.024L7.038 3.52c.28-.277.674-.57 1.249-.4zm-5.16 4.594c.086-.264.226-.508.413-.714L4.574 5.97l2.011 2.022-2.024 2.012-1.037-1.045c-.278-.278-.57-.672-.401-1.247zm4.594 5.16a1.95 1.95 0 0 1-.714-.41l-1.028-1.027 2.023-2.012 2.01 2.022-1.042 1.039c-.28.277-.673.57-1.249.4zm5.163-4.584a2 2 0 0 1-.41.714l-1.038 1.018L9.422 8l2.022-2.011 1.037 1.043c.279.278.57.673.402 1.247"/></svg>`;
+}
+
 function statusDot(dotState: 'ok' | 'warn' | 'err' | 'pulse'): string {
   return `<span class="ai-dot ai-dot-${dotState}" aria-hidden="true"></span>`;
 }
@@ -1871,11 +1888,12 @@ function renderAIToolBadge(toolId: string | null, multi: boolean, warn: boolean)
 }
 
 function renderAIToolPicker(): string {
-  if (!state.aiDetection || !state.aiShowToolPicker || (state.aiDetection.tools.length || 0) < 2) return '';
-  const items = state.aiDetection.tools.map(tool => {
+  if (!state.aiShowToolPicker) return '';
+  const tools = state.aiDetection?.tools ?? [];
+  const items = tools.map(tool => {
     const meta = AI_TOOL_META[tool.id];
     const glyph = getAIToolGlyph(tool.id);
-    const isActive = tool.id === state.aiDetection?.activeTool;
+    const isActive = state.aiDestination === 'external' && tool.id === state.aiDetection?.activeTool;
     const statusClass = tool.mcpReady ? 'is-ok' : 'is-warn';
     const statusText = tool.mcpReady ? 'MCP ready' : 'MCP not configured';
     const check = isActive ? `<span class="aix-picker-check">${checkIcon()}</span>` : '';
@@ -1887,7 +1905,18 @@ function renderAIToolPicker(): string {
       </span>${check}
     </button>`;
   }).join('');
-  return `<div class="aix-picker"><div class="aix-picker-head">Choose AI tool</div>${items}</div>`;
+  const nativeActive = state.aiDestination === 'harness';
+  const nativeRow = `<button type="button" class="aix-picker-item ${nativeActive ? 'on' : ''}" data-action="selectHarnessAI">
+    <span class="aix-picker-ico aix-picker-ico-harness">${harnessIntelligenceIcon()}</span>
+    <span class="aix-picker-text">
+      <span class="aix-picker-name">Harness AI</span>
+      <span class="aix-picker-status">Opens in a new IDE tab</span>
+    </span>${nativeActive ? `<span class="aix-picker-check">${checkIcon()}</span>` : ''}
+  </button>`;
+  const extSection = items
+    ? `<div class="aix-picker-head">Use your favourite AI</div>${items}`
+    : '';
+  return `<div class="aix-picker"><div class="aix-picker-head">Ask</div>${nativeRow}${extSection ? `<div class="aix-picker-div"></div>${extSection}` : ''}</div>`;
 }
 
 /**
@@ -1913,7 +1942,7 @@ function getMcpPathDisplay(toolId: string, scope: 'project' | 'global'): string 
 }
 
 function renderAIMCPCard(): string {
-  if (state.aiOverlay !== 'mcp-setup' && state.aiOverlay !== 'mcp-done' && state.aiOverlay !== 'mcp-existing' && state.aiOverlay !== 'mcp-conflict') return '';
+  if (state.aiOverlay !== 'mcp-setup' && state.aiOverlay !== 'mcp-done' && state.aiOverlay !== 'mcp-existing' && state.aiOverlay !== 'mcp-conflict' && state.aiOverlay !== 'mcp-pat-warning') return '';
   const activeTool = state.aiDetection?.activeTool;
   if (!activeTool) return '';
 
@@ -1924,6 +1953,12 @@ function renderAIMCPCard(): string {
 
   const meta = AI_TOOL_META[activeTool];
   const glyph = getAIToolGlyph(activeTool);
+
+  // PAT + project scope — require explicit confirmation before writing secrets
+  if (state.aiOverlay === 'mcp-pat-warning') {
+    const configFile = getMcpPathDisplay(activeTool, 'project');
+    return `<div class="aix-overlay aix-overlay-warn"><div class="aix-existing-hdr"><span class="aix-existing-warn">${warnIcon()}</span><div class="aix-existing-title"><strong>API key will be written to this repo</strong><span>Project MCP config stores your Harness PAT in <code class="mono">${esc(configFile)}</code>. Committing that file would expose your credentials.</span></div><button type="button" class="aix-overlay-x" data-action="cancelPatProjectMCP" aria-label="Dismiss">${closeIcon()}</button></div><div class="aix-scope-tip aix-scope-tip-warn"><span class="aix-scope-tip-ico">${infoIcon()}</span><span>On confirm, the extension adds <code class="mono">.mcp.json</code> and <code class="mono">.vscode/mcp.json</code> to <code class="mono">.gitignore</code> in this workspace. Prefer <strong>All my projects</strong> if you do not need team-shared MCP setup.</span></div><div class="aix-setup-acts"><button type="button" class="aix-btn-primary ${state.aiMcpConfiguring ? 'is-busy' : ''}" data-action="confirmPatProjectMCP" ${state.aiMcpConfiguring ? 'disabled' : ''}>${state.aiMcpConfiguring ? '<span class="aix-send-spin"></span> Configuring…' : 'Add to .gitignore and configure'}</button><button type="button" class="aix-btn-ghost" data-action="cancelPatProjectMCP" ${state.aiMcpConfiguring ? 'disabled' : ''}>Cancel</button></div></div>`;
+  }
 
   // Existing config card
   if (state.aiOverlay === 'mcp-existing') {
@@ -1952,11 +1987,19 @@ function renderAIMCPCard(): string {
   const busyClass = state.aiMcpConfiguring ? 'is-busy' : '';
   const busyContent = state.aiMcpConfiguring ? `<span class="aix-send-spin"></span> Configuring…` : (state.aiMcpSetupScope === 'project' ? 'Configure for this project' : 'Configure globally');
   const writesTo = getMcpPathDisplay(activeTool, state.aiMcpSetupScope || 'global');
+  const usesPat = state.authSource === 'pat';
+  const projectPat = state.aiMcpSetupScope === 'project' && usesPat;
+  const authLabel = usesPat ? 'Uses your stored Harness PAT' : 'Uses environment variables (no key in file)';
+  const projectScopeHint = projectPat
+    ? 'Contains your API key — confirmation required'
+    : 'Org/project IDs only — safe to share if using env auth';
   const tipText = state.aiMcpSetupScope === 'project'
-    ? (activeTool === 'copilot' ? 'Lives in .vscode/ folder.' : 'Lives in your workspace root.')
+    ? (projectPat
+      ? 'Your PAT will be written inside this repo. You must confirm before we configure.'
+      : (activeTool === 'copilot' ? 'Lives in .vscode/ with env var placeholders.' : 'Lives in your workspace root with env var placeholders.'))
     : 'Lives in your home folder. Only you use it; applies to every project you open.';
 
-  return `<div class="aix-overlay aix-overlay-setup"><div class="aix-setup-hdr"><span class="aix-setup-glyph">${glyph}</span><div class="aix-setup-title"><strong>Configure Harness MCP</strong><span>Lets ${esc(meta.name)} fetch pipeline data, logs &amp; executions.</span></div><button type="button" class="aix-overlay-x" data-action="closeAIMCPCard" aria-label="Dismiss">${closeIcon()}</button></div><div class="aix-scope-label-row"><span class="aix-setup-k">Where</span></div><div class="aix-scope"><button type="button" class="aix-scope-opt ${state.aiMcpSetupScope === 'project' ? 'on' : ''}" data-action="setMCPScope" data-scope="project"><span class="aix-scope-ico">${folderIcon()}</span><span class="aix-scope-text"><strong>This project</strong><span>shared with teammates if committed</span></span><span class="aix-scope-radio" aria-hidden></span></button><button type="button" class="aix-scope-opt ${state.aiMcpSetupScope === 'global' ? 'on' : ''}" data-action="setMCPScope" data-scope="global"><span class="aix-scope-ico">${homeIcon()}</span><span class="aix-scope-text"><strong>All my projects</strong><span>personal, every repo</span></span><span class="aix-scope-radio" aria-hidden></span></button></div><div class="aix-setup-meta"><div class="aix-setup-row"><span class="aix-setup-k">Writes to</span><code class="aix-setup-v mono">${esc(writesTo)}</code></div><div class="aix-setup-row"><span class="aix-setup-k">Auth</span><span class="aix-setup-v">Uses your stored Harness PAT</span></div></div><div class="aix-scope-tip"><span class="aix-scope-tip-ico">${infoIcon()}</span><span>${esc(tipText)}</span></div><div class="aix-setup-acts"><button type="button" class="aix-btn-primary ${busyClass}" data-action="configureAIMCP" ${state.aiMcpConfiguring ? 'disabled' : ''}>${busyContent}</button><button type="button" class="aix-btn-ghost" data-action="closeAIMCPCard">Not now</button></div></div>`;
+  return `<div class="aix-overlay aix-overlay-setup"><div class="aix-setup-hdr"><span class="aix-setup-glyph">${glyph}</span><div class="aix-setup-title"><strong>Configure Harness MCP</strong><span>Lets ${esc(meta.name)} fetch pipeline data, logs &amp; executions.</span></div><button type="button" class="aix-overlay-x" data-action="closeAIMCPCard" aria-label="Dismiss">${closeIcon()}</button></div><div class="aix-scope-label-row"><span class="aix-setup-k">Where</span></div><div class="aix-scope"><button type="button" class="aix-scope-opt ${state.aiMcpSetupScope === 'project' ? 'on' : ''}" data-action="setMCPScope" data-scope="project"><span class="aix-scope-ico">${folderIcon()}</span><span class="aix-scope-text"><strong>This project</strong><span>${esc(projectScopeHint)}</span></span><span class="aix-scope-radio" aria-hidden></span></button><button type="button" class="aix-scope-opt ${state.aiMcpSetupScope === 'global' ? 'on' : ''}" data-action="setMCPScope" data-scope="global"><span class="aix-scope-ico">${homeIcon()}</span><span class="aix-scope-text"><strong>All my projects</strong><span>personal, every repo</span></span><span class="aix-scope-radio" aria-hidden></span></button></div><div class="aix-setup-meta"><div class="aix-setup-row"><span class="aix-setup-k">Writes to</span><code class="aix-setup-v mono">${esc(writesTo)}</code></div><div class="aix-setup-row"><span class="aix-setup-k">Auth</span><span class="aix-setup-v">${esc(authLabel)}</span></div></div><div class="aix-scope-tip${projectPat ? ' aix-scope-tip-warn' : ''}"><span class="aix-scope-tip-ico">${projectPat ? warnIcon() : infoIcon()}</span><span>${esc(tipText)}</span></div><div class="aix-setup-acts"><button type="button" class="aix-btn-primary ${busyClass}" data-action="configureAIMCP" ${state.aiMcpConfiguring ? 'disabled' : ''}>${busyContent}</button><button type="button" class="aix-btn-ghost" data-action="closeAIMCPCard">Not now</button></div></div>`;
 }
 
 function renderAIResponse(): string {
@@ -2103,7 +2146,10 @@ function aiFooter(): string {
   let badgeHtml = '';
   if (effectiveState === 'detecting') badgeHtml = `<div class="aix-detect"><span class="aix-spinner"></span></div>`;
   else if (effectiveState === 'none') badgeHtml = renderAIToolBadge(null, false, false);
-  else if (detection?.activeTool) badgeHtml = renderAIToolBadge(detection.activeTool, (detection.tools.length || 0) > 1, effectiveState === 'unconfigured' || effectiveState === 'cursor-no-plugin' || effectiveState === 'cursor-oauth-pending');
+  // Always render the badge as clickable: the picker now always contains the
+  // Harness AI row, so opening it is meaningful even with a single external tool
+  // (lets the user switch back to Harness AI).
+  else if (detection?.activeTool) badgeHtml = renderAIToolBadge(detection.activeTool, true, effectiveState === 'unconfigured' || effectiveState === 'cursor-no-plugin' || effectiveState === 'cursor-oauth-pending');
   const sendContent = effectiveState === 'sending' ? '<span class="aix-send-spin"></span>' : sendIcon();
   let statusHtml = '';
   if (effectiveState !== 'none') {
@@ -2123,7 +2169,25 @@ function aiFooter(): string {
     const scopeChip = (effectiveState === 'ready' && detection?.mcpScope?.activeScope) ? `<span class="aix-scope-tag is-${detection.mcpScope.activeScope}">${detection.mcpScope.activeScope === 'project' ? folderIcon() : homeIcon()}${detection.mcpScope.activeScope}</span>` : '';
     statusHtml = `<div class="aix-status">${statusDot(s.dot as any)}<span class="aix-status-txt">${esc(s.text)}</span>${scopeChip}${linkHtml}</div>`;
   }
-  return `<div class="aix aix-${effectiveState}">${renderAIToolPicker()}${renderAIMCPCard()}${renderAIResponse()}${renderAILaunched()}<div class="aix-bar">${badgeHtml}<input class="aix-inp" placeholder="${esc(placeholders[effectiveState])}" value="${esc(question)}" ${inputDisabled ? 'disabled' : ''} data-action="aiInput"/><button type="button" class="aix-send" ${sendDisabled ? 'disabled' : ''} data-action="sendAI">${sendContent}</button></div>${statusHtml}</div>`;
+  const overlays = `${renderAIToolPicker()}${renderAIMCPCard()}${renderAIResponse()}${renderAILaunched()}`;
+
+  // ── Destination: Harness AI (native launcher) ──
+  if (state.aiDestination === 'harness') {
+    const caret = `<button type="button" class="aix-split-caret" data-action="toggleAIToolPicker" aria-label="Choose AI">${chevDownIcon()}</button>`;
+    const main = `<button type="button" class="aix-split-main" data-action="openHarnessChat">
+      <span class="aix-split-ico">${harnessIntelligenceIcon()}</span>
+      <span class="aix-split-label">Ask Harness AI</span>
+    </button>`;
+    return `<div class="aix aix-harness">${overlays}<div class="aix-split">${main}${caret}</div>
+      <div class="aix-split-hint">Opens in a new IDE tab · <span class="aix-split-hint-key">⌄</span> use your favourite AI</div></div>`;
+  }
+
+  // ── Destination: external tool (composer) ──
+  const backLink = `<button type="button" class="aix-back" data-action="selectHarnessAI">↺ Harness AI</button>`;
+  const statusWithBack = statusHtml
+    ? statusHtml.replace('</div>', `${backLink}</div>`)
+    : `<div class="aix-status">${backLink}</div>`;
+  return `<div class="aix aix-${effectiveState}">${overlays}<div class="aix-bar">${badgeHtml}<input class="aix-inp" placeholder="${esc(placeholders[effectiveState])}" value="${esc(question)}" ${inputDisabled ? 'disabled' : ''} data-action="aiInput"/><button type="button" class="aix-send" ${sendDisabled ? 'disabled' : ''} data-action="sendAI">${sendContent}</button></div>${statusWithBack}</div>`;
 }
 
 // ── Git bar ────────────────────────────────────────────────────────────────
@@ -2319,14 +2383,18 @@ function pipelineRow(p: PipelineItem): string {
   // API returns newest first, so reverse to show oldest→newest (left to right)
   const runHistory = (p.recentExecutions ?? []).slice(0, 5).reverse();
   const historySquares = runHistory.map((e, idx) => {
-    const sqClass = e.status === 'SUCCESS' ? 'rs-ok'
-                  : e.status === 'FAILED' ? 'rs-err'
-                  : e.status === 'RUNNING' || e.status === 'ASYNC_WAITING' ? 'rs-run'
-                  : e.status === 'APPROVALWAITING' ? 'rs-wait'
-                  : e.status === 'ABORTED' ? 'rs-abort'
+    // Normalize case — the API returns mixed-case statuses ("Success", "IgnoreFailed").
+    const st = (e.status || '').toUpperCase();
+    const sqClass = st === 'SUCCESS' ? 'rs-ok'
+                  : st === 'IGNOREFAILED' || st === 'IGNORE_FAILED' ? 'rs-ign'
+                  : st === 'FAILED' ? 'rs-err'
+                  : st === 'RUNNING' || st === 'ASYNC_WAITING' ? 'rs-run'
+                  : st === 'APPROVALWAITING' || st === 'WAITING' || st === 'INTERVENTIONWAITING' ? 'rs-wait'
+                  : st === 'EXPIRED' ? 'rs-expired'
+                  : st === 'ABORTED' ? 'rs-abort'
                   : 'rs-pend';
     const isLatest = idx === runHistory.length - 1;
-    const title = `${e.status} · ${timeAgo(e.startTs)}`;
+    const title = `${titleCase(st)} · ${timeAgo(e.startTs)}`;
     return `<span class="rs-cell ${sqClass}${isLatest ? ' rs-latest' : ''}" title="${esc(title)}"></span>`;
   }).join('');
 
@@ -2335,8 +2403,9 @@ function pipelineRow(p: PipelineItem): string {
 
   // Tags display
   const tagEntries = Object.entries(p.tags ?? {});
+  const shownTags = tagEntries.slice(0, 3);
   const tagsHtml = tagEntries.length > 0
-    ? `<div class="pl-tags">🏷️ ${tagEntries.map(([k, v]) => `${esc(k)}: ${esc(v)}`).join(' · ')}</div>`
+    ? `<div class="pl-tags">${shownTags.map(([k, v]) => `<span class="ei-tag">${esc(k)}${v ? ': ' + esc(v) : ''}</span>`).join('')}${tagEntries.length > 3 ? `<span class="ei-tag pl-tag-more">+${tagEntries.length - 3}</span>` : ''}</div>`
     : '';
 
   // Meta info: clock icon + time · executor
@@ -2362,6 +2431,15 @@ function pipelineRow(p: PipelineItem): string {
 }
 
 // ── History list view ──────────────────────────────────────────────────────
+const RANGE_LABEL: Record<string, string> = {
+  LAST_24_HOURS: 'Last 24 hours',
+  LAST_7_DAYS: 'Last 7 days',
+  LAST_30_DAYS: 'Last 30 days',
+  LAST_3_MONTHS: 'Last 3 months',
+  LAST_12_MONTHS: 'Last 12 months',
+  ALL: 'All time',
+};
+
 function historyListView(): string {
   const parts: string[] = [];
 
@@ -2448,11 +2526,13 @@ function historyListView(): string {
   const commitPillDisabled = !state.gitCtx?.commitSha ? ' disabled' : '';
 
   parts.push(`<div class="hist-toolbar">
-    <div class="hist-filters">
-      <button class="f-pill${allActive}"     data-action="filterAll">All</button>
-      <button class="f-pill${failedActive}"  data-action="filterFailed">✕ Failed</button>
-      <button class="f-pill${successActive}" data-action="filterSuccess">✓ Success</button>
-      <button class="f-pill${waitingActive}" data-action="filterWaiting">⏱ Waiting</button>
+    <div class="hist-filters hist-row-status">
+      <button class="f-pill f-all${allActive}"         data-action="filterAll">All</button>
+      <button class="f-pill f-failed${failedActive}"   data-action="filterFailed"><span class="f-dot"></span>Failed</button>
+      <button class="f-pill f-success${successActive}" data-action="filterSuccess"><span class="f-dot"></span>Success</button>
+      <button class="f-pill f-waiting${waitingActive}" data-action="filterWaiting"><span class="f-dot"></span>Waiting</button>
+    </div>
+    <div class="hist-row-mods">
       <button class="f-pill commit-pill${commitPillOn}${commitPillDisabled}"
               data-action="toggleCurrentCommitFilter"
               title="${state.gitCtx?.commitSha ? 'Filter to current commit' : 'No git commit detected'}"
@@ -2466,6 +2546,7 @@ function historyListView(): string {
         <span class="hist-pf-label">⚡ ${esc(filteredPipelineName)}</span>
         <button class="hist-pf-clear" data-action="clearPipelineFilter" title="Clear pipeline filter">×</button>
       </span>` : ''}
+      <span class="hist-mods-spacer"></span>
       <div class="hist-sort-wrap">
         <button class="hist-sort-btn${sortIsDefault ? '' : ' modified'}${state.sortMenuOpen ? ' open' : ''}"
                 data-action="toggleSortMenu"
@@ -2486,15 +2567,42 @@ function historyListView(): string {
             ${sortOptHtml('status')}
           </div>` : ''}
       </div>
+      <div class="hist-range-wrap">
+        <button class="hist-range-btn${state.historyRange === 'LAST_24_HOURS' ? '' : ' modified'}${state.rangeMenuOpen ? ' open' : ''}"
+                data-action="toggleRangeMenu" title="Time range: ${RANGE_LABEL[state.historyRange]}"
+                aria-haspopup="menu" aria-expanded="${state.rangeMenuOpen ? 'true' : 'false'}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4" stroke-linecap="round"/></svg>
+          <span>${RANGE_LABEL[state.historyRange]}</span><span class="caret">▾</span>
+        </button>
+        ${state.rangeMenuOpen ? `
+          <div class="hist-range-scrim" data-action="closeRangeMenu"></div>
+          <div class="hist-range-menu" role="menu" aria-label="Time range" style="top: ${state.rangeMenuPos.top}px; left: ${state.rangeMenuPos.left}px;">
+            ${(['LAST_24_HOURS','LAST_7_DAYS','LAST_30_DAYS','LAST_3_MONTHS','LAST_12_MONTHS','ALL'] as const).map(r =>
+              `<button class="hist-range-opt${state.historyRange === r ? ' selected' : ''}" data-action="setRange" data-range="${r}" role="menuitemradio" aria-checked="${state.historyRange === r}">${RANGE_LABEL[r]}${state.historyRange === r ? '<span class="ck">✓</span>' : ''}</button>`).join('')}
+          </div>` : ''}
+      </div>
       <span class="hist-count-chip"><span class="hc-n">${displayList.length}</span><span class="hc-sep">/</span><span class="hc-total">${totalCount}</span></span>
     </div>
   </div>`);
+  // (toolbar: row 1 = status filters, row 2 = current-commit + sort/range/count)
 
   // Execution list (scrollable area)
   parts.push(`<div class="exec-list-body">`);
 
   if (state.loadingExecution) {
-    parts.push(`<div class="loading">Loading executions...</div>`);
+    // Skeleton rows fill the same space the real list will occupy, so the panel
+    // paints at its final height and real rows swap in with no post-load jump.
+    const n = Math.max(8, Math.min(state.historyPageSize, 12));
+    for (let i = 0; i < n; i++) {
+      parts.push(`<div class="exec-item ei-row ei-skel" aria-hidden="true">
+        <div class="ei-dot"></div>
+        <div class="ei-body">
+          <div class="ei-top"><span class="sk sk-name"></span><span class="sk sk-badge"></span></div>
+          <div class="ei-git"><span class="sk sk-git"></span></div>
+          <div class="ei-foot"><span class="sk sk-foot"></span></div>
+        </div>
+      </div>`);
+    }
   } else if (displayList.length === 0) {
     // Special message when current commit filter is on but no match
     if (state.currentCommitFilter && state.gitCtx?.commitSha) {
@@ -2519,40 +2627,54 @@ function historyListView(): string {
 }
 
 // ── History item row ───────────────────────────────────────────────────────
+// Title-case a raw status enum so we never dump an ALLCAPS value into the badge.
+const titleCase = (s: string) => s.charAt(0) + s.slice(1).toLowerCase();
+
+// Tiny muted glyphs for the row footer (relative time, duration) and the
+// no-git trigger line. All 10px stroked, inherit currentColor.
+const clockIcon = () => '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const durIcon = () => '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 3h6M12 8v5l3 2M12 8a7 7 0 1 0 0 14 7 7 0 0 0 0-14z" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const boltIcon = () => '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>';
+
 function historyItemRow(item: HistoryItem): string {
   const statusNorm = item.status.toUpperCase();
   const dotClass = statusNorm === 'SUCCESS' ? 'ok'
                  : statusNorm === 'FAILED' ? 'f'
+                 : statusNorm === 'IGNOREFAILED' || statusNorm === 'IGNORE_FAILED' ? 'ign'
                  : statusNorm === 'RUNNING' || statusNorm === 'ASYNC_WAITING' ? 'r'
                  : statusNorm === 'ABORTED' ? 'ab'
                  : 'ok';
 
-  const badgeClass = statusNorm === 'SUCCESS' ? 'ok'
-                   : statusNorm === 'FAILED' ? 'f'
-                   : statusNorm === 'RUNNING' || statusNorm === 'ASYNC_WAITING' ? 'r'
-                   : statusNorm === 'ABORTED' ? 'ab'
-                   : 'ok';
+  const badgeClass = dotClass; // same vocabulary
 
   const badgeText = statusNorm === 'RUNNING' || statusNorm === 'ASYNC_WAITING' ? '↻ Running'
                   : statusNorm === 'SUCCESS' ? 'Success'
                   : statusNorm === 'FAILED' ? 'Failed'
+                  : statusNorm === 'IGNOREFAILED' || statusNorm === 'IGNORE_FAILED' ? 'Ignore Failed'
                   : statusNorm === 'ABORTED' ? 'Aborted'
                   : statusNorm === 'APPROVALWAITING' ? 'Approval Waiting'
-                  : statusNorm;
+                  : titleCase(statusNorm);
 
-  const duration = item.endTs ? dur(item.startTs, item.endTs) : `${Math.floor((Date.now() - item.startTs) / 1000)}s…`;
+  const duration = dur(item.startTs, item.endTs);  // dur() falls back to now when endTs is missing → running shows m:ss, not raw 4354s…
 
   const currentClass = item.isCurrentCommit ? ' current' : '';
   const currentTag = item.isCurrentCommit
     ? `<span class="ei-cur-tag">● your commit</span>`
     : '';
 
-  // Module tags
+  // Module tags — folded onto the meta line; zero-count STO is suppressed.
   const modTags: string[] = [];
   const mi = item.moduleInfo as any;
   if (mi?.ci) modTags.push(`<span class="ei-tag et-ci">CI${statusNorm === 'RUNNING' ? ' ▶' : ''}</span>`);
   if (mi?.cd) modTags.push(`<span class="ei-tag et-cd">CD</span>`);
-  if (mi?.sto) modTags.push(`<span class="ei-tag et-sto">STO ×${(mi.sto as any).count ?? 0}</span>`);
+  // Security (SEC) from the summary payload only: top-level moduleInfo.sto,
+  // a parsed scan, or any stage whose moduleInfo carries `sto`. Note: STO run
+  // purely as steps inside a CI stage is not visible in the summary (it only
+  // shows in the full execution graph), so those rows won't show a SEC chip —
+  // detecting them would need a per-row graph fetch, which we avoid here.
+  const lnm = (item as any).layoutNodeMap as Record<string, any> | undefined;
+  const stageHasSto = lnm ? Object.values(lnm).some(n => n?.moduleInfo && (n.moduleInfo as any).sto) : false;
+  if (mi?.sto || (item as any).stoScan || stageHasSto) modTags.push(`<span class="ei-tag et-sto">SEC</span>`);
   if (mi?.ti) {
     const tiData = mi.ti as any;
     const selected = tiData.selected ?? 0;
@@ -2565,86 +2687,51 @@ function historyItemRow(item: HistoryItem): string {
   const branch = item.gitBranch ? esc(item.gitBranch) : '';
   const author = item.triggerInfo?.triggeredBy?.identifier || item.triggerInfo?.triggeredBy?.email || '';
   const timeAgo = ago(item.startTs);
+  const git = sha || branch || author;
+  // Fallback label for runs with no git context (keeps line 2 height uniform).
+  const triggerType = (item.triggerInfo as any)?.triggerType || '';
+  const triggerLabel = triggerType === 'SCHEDULER_CRON' ? 'Scheduled trigger'
+                     : triggerType === 'WEBHOOK' || triggerType === 'WEBHOOK_CUSTOM' ? 'Webhook trigger'
+                     : triggerType === 'MANUAL' ? 'Run manually'
+                     : 'Triggered automatically';
 
-  return `<div class="exec-item${currentClass}" data-action="viewExecution" data-exec-id="${esc(item.planExecutionId)}">
+  return `<div class="exec-item ei-row${currentClass}" data-action="viewExecution" data-exec-id="${esc(item.planExecutionId)}">
     <div class="ei-dot ${dotClass}"></div>
     <div class="ei-body">
       <div class="ei-top">
         <span class="ei-name">${esc(item.name)}</span>
         ${currentTag}
         <span class="ei-badge ${badgeClass}">${badgeText}</span>
-        <span class="ei-dur">${duration}</span>
       </div>
-      <div class="ei-meta">
-        ${sha ? `<span class="ei-sha">${sha}</span>` : ''}
-        ${branch ? `<span class="ei-branch">${branch}</span>` : ''}
-        ${author ? `<span>${esc(author)}</span>` : ''}
-        <span>${timeAgo}</span>
+      <div class="ei-git">
+        ${git ? `
+          ${sha ? `<span class="ei-sha">${sha}</span>` : ''}
+          ${branch ? `<span class="ei-branch" title="${esc(item.gitBranch)}">${branch}</span>` : ''}
+          ${author ? `<span class="ei-sep">·</span><span class="ei-author">${esc(author)}</span>` : ''}
+        ` : `<span class="ei-trig">${boltIcon()} ${esc(triggerLabel)}</span>`}
       </div>
-      ${modTags.length ? `<div class="ei-tags">${modTags.join('')}</div>` : ''}
+      <div class="ei-foot">
+        <span class="ei-time">${clockIcon()}${timeAgo}</span>
+        ${duration ? `<span class="ei-sep">·</span><span class="ei-dur">${durIcon()}${duration}</span>` : ''}
+        ${modTags.length ? `<span class="ei-mods">${modTags.join('')}</span>` : ''}
+      </div>
     </div>
   </div>`;
 }
 
 // ── Pagination bar ─────────────────────────────────────────────────────────
-function paginationBar(): string {
-  const totalPages = Math.ceil(state.historyTotal / state.historyPageSize);
-
-  // Don't render pagination if only one page
-  if (totalPages <= 1) {
-    return '';
+// "Load more" footer — appends the next page instead of a numbered pager,
+// which suits a narrow panel and (with Phase 4) real server-side paging.
+function loadMoreFooter(): string {
+  const loaded = state.historyList.length;
+  const total  = state.historyTotal || loaded;
+  if (loaded >= total) return '';
+  const remaining = total - loaded;
+  const next = Math.min(state.historyPageSize, remaining);
+  if (state.loadingMore) {
+    return `<div class="load-more"><button class="load-more-btn" disabled><span class="spinner">⟳</span> Loading…</button></div>`;
   }
-
-  const currentPage = state.historyPage;
-  const hasPrev = currentPage > 0;
-  const hasNext = currentPage < totalPages - 1;
-
-  const pages: string[] = [];
-
-  // Logic: Show more page numbers to make navigation clearer
-  // - Show all pages if 10 or fewer
-  // - Otherwise: show first 7 pages, ellipsis, last page
-  // - Also show current page neighborhood if beyond first 7
-
-  if (totalPages <= 10) {
-    // Show all pages if 10 or fewer
-    for (let i = 0; i < totalPages; i++) {
-      pages.push(`<span class="pg-num${currentPage === i ? ' on' : ''}" data-action="goToPage" data-page="${i}">${i + 1}</span>`);
-    }
-  } else {
-    // Show first 7 pages
-    const initialPageCount = Math.min(7, totalPages);
-    for (let i = 0; i < initialPageCount; i++) {
-      pages.push(`<span class="pg-num${currentPage === i ? ' on' : ''}" data-action="goToPage" data-page="${i}">${i + 1}</span>`);
-    }
-
-    // Show current page neighborhood if beyond first 7 pages
-    if (currentPage >= 7 && currentPage < totalPages - 1) {
-      pages.push(`<span style="font-size:10px;color:#ccc">…</span>`);
-
-      const start = Math.max(7, currentPage - 1);
-      const end = Math.min(totalPages - 1, currentPage + 2);
-
-      for (let i = start; i < end; i++) {
-        pages.push(`<span class="pg-num${currentPage === i ? ' on' : ''}" data-action="goToPage" data-page="${i}">${i + 1}</span>`);
-      }
-    }
-
-    // Show ellipsis before last page if needed
-    if (currentPage < totalPages - 2 && totalPages > 8) {
-      pages.push(`<span style="font-size:10px;color:#ccc">…</span>`);
-    }
-
-    // Always show last page
-    pages.push(`<span class="pg-num${currentPage === totalPages - 1 ? ' on' : ''}" data-action="goToPage" data-page="${totalPages - 1}">${totalPages}</span>`);
-  }
-
-  return `<div class="pag">
-    <button class="pg-btn" data-action="prevPage"${hasPrev ? '' : ' disabled'}>←</button>
-    ${pages.join('')}
-    <button class="pg-btn" data-action="nextPage"${hasNext ? '' : ' disabled'}>→</button>
-    <span class="pg-info">Page ${currentPage + 1} / ${totalPages}</span>
-  </div>`;
+  return `<div class="load-more"><button class="load-more-btn" data-action="loadMore">Load ${next} more</button></div>`;
 }
 
 function pipelinesPaginationBar(totalPipelines: number): string {
@@ -2966,6 +3053,40 @@ function buildTabBody(ex: ExecState): string {
 }
 
 // ── Deploy (CD) tab ────────────────────────────────────────────────────────
+/** Parse account/org/project scope from a Harness execution URL. */
+function parseHarnessProjectScope(harnessUrl?: string): {
+  baseUrl: string; accountId: string; orgId: string; projectId: string;
+} | undefined {
+  if (!harnessUrl) return undefined;
+  const m = harnessUrl.match(
+    /^(https?:\/\/[^/]+)\/ng\/account\/([^/]+)\/all\/orgs\/([^/]+)\/projects\/([^/]+)/
+  );
+  if (!m) return undefined;
+  return { baseUrl: m[1], accountId: m[2], orgId: m[3], projectId: m[4] };
+}
+
+/** Environment settings deep-link (issue #16).
+ *  …/all/orgs/{org}/projects/{project}/settings/environments/{envName}/details?sectionId=SUMMARY */
+function deployEnvironmentUrl(ex: ExecState, envName: string): string | undefined {
+  if (!envName) return undefined;
+
+  const scope = parseHarnessProjectScope(ex.harnessUrl);
+  const orgId = state.org ?? scope?.orgId;
+  const projectId = state.project ?? scope?.projectId;
+  const accountId = scope?.accountId
+    ?? ex.harnessUrl?.match(/\/account\/([^/]+)/)?.[1];
+  const baseUrl = scope?.baseUrl ?? ex.harnessUrl?.match(/^(https?:\/\/[^/]+)/)?.[1];
+  if (!baseUrl || !accountId || !orgId || !projectId) return undefined;
+
+  // Harness env identifiers in URLs are bare ids (no org./account. prefix).
+  let envId = envName;
+  if (envId.startsWith('org.')) envId = envId.slice(4);
+  else if (envId.startsWith('account.')) envId = envId.slice(8);
+  else if (envId.startsWith('_project_')) envId = envId.slice(9);
+
+  return `${baseUrl}/ng/account/${accountId}/all/orgs/${encodeURIComponent(orgId)}/projects/${encodeURIComponent(projectId)}/settings/environments/${encodeURIComponent(envId)}/details?sectionId=SUMMARY`;
+}
+
 function parseDeploy(ex: ExecState): DeployStage[] {
   const map = ex.layoutNodeMap ?? {};
   const S: Record<string, DeployStage['status']> = {
@@ -2999,6 +3120,7 @@ function parseDeploy(ex: ExecState): DeployStage[] {
           type: infra.type,
           status: rawStatus === 'SUCCESS' ? 'ok' : status,
           deployedAt: n.endTs ? ago(n.endTs) : undefined,
+          url: deployEnvironmentUrl(ex, String(infra.name ?? infra.identifier ?? '')),
         }] : [],
       };
     });
@@ -3039,11 +3161,14 @@ function deployTabBody(ex: ExecState): string {
     const envs = s.envs.map(e => {
       const meta = [e.type, e.infraName].filter(Boolean).map(x => esc(x as string)).join(' · ');
       const when = e.deployedAt ? `<span class="tb-env-at">${esc(e.deployedAt)}</span>` : '';
+      const ext = e.url
+        ? `<a class="tb-env-ext" data-action="openUrl" data-url="${esc(e.url)}" aria-label="Open environment in Harness">${EXT_LINK}</a>`
+        : '';
       return `<div class="tb-env">
         <span class="tb-env-dot is-${e.status}"></span>
         <span class="tb-env-name">${esc(e.name)}</span>
         <span class="tb-env-meta">${meta}</span>${when}
-        <span class="tb-env-ext" aria-label="Open environment">${EXT_LINK}</span>
+        ${ext}
       </div>`;
     }).join('');
 
@@ -3205,9 +3330,10 @@ function execCard(ex: ExecState): string {
         cleanRepoName = cleanRepoName.substring(8);
       }
 
-      // Build Harness Code PR URL
+      // Build Harness Code PR URL — derive base from harnessUrl so app3/self-hosted instances work
+      const harnessBase = ex.harnessUrl?.match(/^(https?:\/\/[^/]+)/)?.[1] ?? 'https://app.harness.io';
       if (account && state.org && cleanRepoName) {
-        prUrl = `https://app.harness.io/ng/account/${account}/module/code/orgs/${state.org}/repos/${cleanRepoName}/pulls/${prNumber}/conversation`;
+        prUrl = `${harnessBase}/ng/account/${account}/module/code/orgs/${state.org}/repos/${cleanRepoName}/pulls/${prNumber}/conversation`;
       }
     }
 
@@ -3493,6 +3619,19 @@ function execCard(ex: ExecState): string {
           const logKeyAttr   = step.logBaseKey ? ` data-logbasekey="${esc(step.logBaseKey)}"` : '';
           const clickable    = canExpand ? ' step-clickable' : '';
 
+          // Detect Harness AI agent steps: identifier "agent" inside a STEP_GROUP,
+          // or stepType matching the harness-ai-agent image name
+          const isAgentStep = step.identifier === 'agent' && !!step.parentGroupName
+            || /harness-ai-agent|HarnessAIAgent/i.test(step.stepType ?? '');
+          // Show the step group name ("PR Review") instead of the generic "Agent" step name
+          const displayName = isAgentStep && step.parentGroupName
+            ? `⬡ ${step.parentGroupName}`
+            : isAgentStep
+            ? `⬡ ${step.name}`
+            : step.name;
+          const stepTypeAttr = step.stepType ? ` data-steptype="${esc(step.stepType)}"` : '';
+          const agentAttr = isAgentStep ? ' data-isagent="1"' : '';
+
           // Add metadata attributes for expanded log viewer
           const stepNameAttr = ` data-stepname="${esc(step.name)}"`;
           const stageNameAttr = ` data-stagename="${esc(stage.name)}"`;
@@ -3504,27 +3643,30 @@ function execCard(ex: ExecState): string {
 
           // Enhanced theme: status classes and external link icon
           if (state.webviewTheme === 'enhanced') {
-            const extIcon = '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M3 3 L7 3 L7 7 M7 3 L3 7" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>';
+            const extIcon = isAgentStep
+              ? '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M3 3 L7 3 L7 7 M7 3 L3 7" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>'
+              : '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M3 3 L7 3 L7 7 M7 3 L3 7" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>';
             const stepStatusClass = step.status === 'FAILED' ? 'is-failed'
                                   : step.status === 'IGNOREFAILED' ? 'is-failed'
                                   : (!step.startTs || step.status === 'NOT_STARTED') ? 'is-pending'
                                   : '';
+            const tipLabel = isAgentStep ? 'View agent chat' : 'View step logs';
 
-            parts.push(`<button class="step-row${isExpanded ? ' on' : ''}${stepStatusClass ? ' ' + stepStatusClass : ''}${clickable}" data-action="toggleStep"${nodeAttr}${logKeyAttr}${stepNameAttr}${stageNameAttr}${pipelineNameAttr}${planIdAttr}${statusAttr}${durationAttr}>
+            parts.push(`<button class="step-row${isExpanded ? ' on' : ''}${stepStatusClass ? ' ' + stepStatusClass : ''}${clickable}" data-action="toggleStep"${nodeAttr}${logKeyAttr}${stepNameAttr}${stageNameAttr}${pipelineNameAttr}${planIdAttr}${statusAttr}${durationAttr}${stepTypeAttr}${agentAttr}>
               <span class="step-stat">${stageIcon(step.status)}</span>
-              <span class="step-name">${esc(step.name)}</span>
+              <span class="step-name">${esc(displayName)}</span>
               <span class="step-dur" data-start-ts="${step.startTs || 0}" data-end-ts="${step.endTs || 0}">${dur(step.startTs, step.endTs)}</span>
-              ${canExpand ? `<span class="tip-wrap"><span class="step-ext">${extIcon}</span><span class="tip">View step logs</span></span>` : ''}
+              ${canExpand ? `<span class="tip-wrap"><span class="step-ext">${extIcon}</span><span class="tip">${tipLabel}</span></span>` : ''}
             </button>`);
           } else {
             // Simple theme
             const showExtIcon = state.logViewerVariation === 'expanded' && canExpand;
-            const extIcon = showExtIcon ? '<span class="tip-wrap"><span class="step-ext-ic">↗</span><span class="tip">View step logs</span></span>' : '';
+            const extIcon = showExtIcon ? `<span class="tip-wrap"><span class="step-ext-ic">↗</span><span class="tip">${isAgentStep ? 'View agent chat' : 'View step logs'}</span></span>` : '';
 
-            parts.push(`<div class="step-row${stepActive ? ' step-running' : ''}${stepFailed ? ' failed' : ''}${stepWarning ? ' warning' : ''}${clickable}" data-action="toggleStep"${nodeAttr}${logKeyAttr}${stepNameAttr}${stageNameAttr}${pipelineNameAttr}${planIdAttr}${statusAttr}${durationAttr}>
+            parts.push(`<div class="step-row${stepActive ? ' step-running' : ''}${stepFailed ? ' failed' : ''}${stepWarning ? ' warning' : ''}${clickable}" data-action="toggleStep"${nodeAttr}${logKeyAttr}${stepNameAttr}${stageNameAttr}${pipelineNameAttr}${planIdAttr}${statusAttr}${durationAttr}${stepTypeAttr}${agentAttr}>
               <span class="step-toggle${isLoading ? ' step-loading' : ''}">${toggleIcon}</span>
               <span class="step-icon">${stageIcon(step.status)}</span>
-              <span class="step-name">${esc(step.name)}${extIcon}</span>
+              <span class="step-name">${esc(displayName)}${extIcon}</span>
               <span class="step-dur" data-start-ts="${step.startTs || 0}" data-end-ts="${step.endTs || 0}">${dur(step.startTs, step.endTs)}</span>
             </div>`);
           }
@@ -3836,7 +3978,7 @@ function opaRow(ex: ExecState): string {
   }).join('');
 
   const tooltip = details.length
-    ? `<div class="opa-tooltip"><div class="opa-tt-header">Policy Evaluations</div>${tooltipRows}</div>`
+    ? `<div class="opa-tooltip"><div class="opa-tt-header">Policy Evaluations</div><div class="opa-tt-list">${tooltipRows}</div></div>`
     : '';
 
   const url = o.policyUrl ?? ex.harnessUrl;
@@ -4074,6 +4216,72 @@ function togglePin(): void {
   scheduleRender();
 }
 
+// Position OPA policy tooltip with position:fixed so it escapes .panel-scroll
+// clipping (issue #15). Opens below the row when room allows, else above.
+function bindOpaTooltips(): void {
+  const GAP = 8;
+  const MIN_H = 100;
+  const MAX_H = 320;
+
+  document.querySelectorAll<HTMLElement>('.opa-tooltip-anchor').forEach(anchor => {
+    const tip = anchor.querySelector('.opa-tooltip') as HTMLElement | null;
+    if (!tip) return;
+
+    let hideTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const reset = () => {
+      tip.style.cssText = '';
+    };
+
+    const show = () => {
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+
+      tip.style.display = 'flex';
+      tip.style.position = 'fixed';
+      tip.style.visibility = 'hidden';
+      tip.style.zIndex = '1000';
+      tip.style.maxWidth = '320px';
+      tip.style.minWidth = '260px';
+
+      const rect = anchor.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom - GAP - 12;
+      const spaceAbove = rect.top - GAP - 12;
+      const openBelow = spaceBelow >= MIN_H || spaceBelow >= spaceAbove;
+      const maxH = Math.min(MAX_H, Math.max(MIN_H, openBelow ? spaceBelow : spaceAbove));
+
+      tip.style.maxHeight = `${maxH}px`;
+
+      // Measure width after display so left clamping is accurate
+      const tipW = tip.offsetWidth || 280;
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - tipW - 8));
+      tip.style.left = `${left}px`;
+
+      if (openBelow) {
+        tip.style.top = `${rect.bottom + GAP}px`;
+        tip.style.bottom = 'auto';
+      } else {
+        tip.style.top = 'auto';
+        tip.style.bottom = `${window.innerHeight - rect.top + GAP}px`;
+      }
+
+      tip.style.visibility = '';
+    };
+
+    const scheduleHide = () => {
+      hideTimer = setTimeout(reset, 120);
+    };
+
+    const cancelHide = () => {
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    };
+
+    anchor.addEventListener('mouseenter', show);
+    anchor.addEventListener('mouseleave', scheduleHide);
+    tip.addEventListener('mouseenter', cancelHide);
+    tip.addEventListener('mouseleave', scheduleHide);
+  });
+}
+
 // ── Bind ───────────────────────────────────────────────────────────────────
 let aiEventDelegationSetup = false;
 
@@ -4123,7 +4331,7 @@ function bind(): void {
     state.executions.clear();
     // Request history data from extension host (using initial calculated page size)
     console.log('[Webview] Sending fetchHistory message', { page: 0, filter: state.historyFilter, pageSize: state.historyPageSize });
-    vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize });
+    vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize, range: state.historyRange });
     scheduleRender(true); // User action
   });
 
@@ -4170,7 +4378,8 @@ function bind(): void {
         page: 0,
         filter: state.historyFilter,
         pageSize: state.historyPageSize,
-        pipelineId: pipelineId
+        pipelineId: pipelineId,
+        range: state.historyRange
       });
 
       scheduleRender(true);
@@ -4264,35 +4473,50 @@ function bind(): void {
     });
   });
 
-  // History filters
-  q('[data-action="filterAll"]', () => {
-    state.historyFilter = 'all';
-    state.historyPage = 0;
-    state.loadingExecution = true; // Show loading state while fetching
-    vscode.postMessage({ type: 'fetchHistory', page: 0, filter: 'all', pageSize: state.historyPageSize });
-    scheduleRender(true); // User action
+  // Time-range control. The menu is position:fixed (computed here) so it
+  // escapes the scrollable list container instead of being clipped by it.
+  q('[data-action="toggleRangeMenu"]', () => {
+    if (!state.rangeMenuOpen) {
+      const btn = document.querySelector('[data-action="toggleRangeMenu"]') as HTMLElement;
+      if (btn) {
+        const rect = btn.getBoundingClientRect();
+        const menuWidth = 160;
+        state.rangeMenuPos = {
+          top: rect.bottom + 4,
+          left: Math.max(8, rect.right - menuWidth), // align right edges, keep on-screen
+        };
+      }
+    }
+    state.rangeMenuOpen = !state.rangeMenuOpen;
+    scheduleRender(true);
   });
-  q('[data-action="filterFailed"]', () => {
-    state.historyFilter = 'failed';
-    state.historyPage = 0;
-    state.loadingExecution = true; // Show loading state while fetching
-    vscode.postMessage({ type: 'fetchHistory', page: 0, filter: 'failed', pageSize: state.historyPageSize });
-    scheduleRender(true); // User action
+  q('[data-action="closeRangeMenu"]', () => { state.rangeMenuOpen = false; scheduleRender(true); });
+  document.querySelectorAll<HTMLElement>('[data-action="setRange"]').forEach(el => {
+    el.addEventListener('click', () => {
+      const r = el.dataset['range'] as typeof state.historyRange;
+      if (r) {
+        state.historyRange = r;
+        state.rangeMenuOpen = false;
+        state.historyPage = 0;
+        state.loadingExecution = true;
+        postFetchHistory();
+        scheduleRender(true);
+      }
+    });
   });
-  q('[data-action="filterSuccess"]', () => {
-    state.historyFilter = 'success';
+
+  // History filters — reset to page 0 and refetch with the current range.
+  const applyFilter = (f: typeof state.historyFilter) => {
+    state.historyFilter = f;
     state.historyPage = 0;
-    state.loadingExecution = true; // Show loading state while fetching
-    vscode.postMessage({ type: 'fetchHistory', page: 0, filter: 'success', pageSize: state.historyPageSize });
-    scheduleRender(true); // User action
-  });
-  q('[data-action="filterWaiting"]', () => {
-    state.historyFilter = 'waiting';
-    state.historyPage = 0;
-    state.loadingExecution = true; // Show loading state while fetching
-    vscode.postMessage({ type: 'fetchHistory', page: 0, filter: 'waiting', pageSize: state.historyPageSize });
-    scheduleRender(true); // User action
-  });
+    state.loadingExecution = true;
+    postFetchHistory();
+    scheduleRender(true);
+  };
+  q('[data-action="filterAll"]',     () => applyFilter('all'));
+  q('[data-action="filterFailed"]',  () => applyFilter('failed'));
+  q('[data-action="filterSuccess"]', () => applyFilter('success'));
+  q('[data-action="filterWaiting"]', () => applyFilter('waiting'));
 
   // Current commit filter checkbox
   q('[data-action="toggleCurrentCommitFilter"]', () => {
@@ -4305,37 +4529,19 @@ function bind(): void {
     state.filteredPipelineId = null;
     state.historyPage = 0;
     state.loadingExecution = true;
-    vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize });
+    vscode.postMessage({ type: 'fetchHistory', page: 0, filter: state.historyFilter, pageSize: state.historyPageSize, range: state.historyRange });
     scheduleRender(true); // User action
   });
 
-  // Pagination
-  q('[data-action="prevPage"]', () => {
-    if (state.historyPage > 0) {
-      state.historyPage--;
-      state.loadingExecution = true; // Show loading state while fetching
-      vscode.postMessage({ type: 'fetchHistory', page: state.historyPage, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId });
-      scheduleRender(true); // User action
-    }
-  });
-  q('[data-action="nextPage"]', () => {
-    const totalPages = Math.ceil(state.historyTotal / state.historyPageSize);
+  // Load more — append the next page (replaces the old numbered pager)
+  q('[data-action="loadMore"]', () => {
+    const totalPages = Math.ceil((state.historyTotal || 1) / state.historyPageSize);
     if (state.historyPage < totalPages - 1) {
       state.historyPage++;
-      state.loadingExecution = true; // Show loading state while fetching
-      vscode.postMessage({ type: 'fetchHistory', page: state.historyPage, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId });
+      state.loadingMore = true;
+      postFetchHistory();
       scheduleRender(true); // User action
     }
-  });
-
-  document.querySelectorAll<HTMLElement>('[data-action="goToPage"]').forEach(el => {
-    el.addEventListener('click', () => {
-      const page = parseInt(el.dataset['page'] ?? '0', 10);
-      state.historyPage = page;
-      state.loadingExecution = true; // Show loading state while fetching
-      vscode.postMessage({ type: 'fetchHistory', page, filter: state.historyFilter, pageSize: state.historyPageSize, pipelineId: state.filteredPipelineId });
-      scheduleRender(true); // User action
-    });
   });
 
   // Pipelines pagination
@@ -4432,7 +4638,8 @@ function bind(): void {
           const planExecutionId = el.dataset['planexecutionid'];
           const status = el.dataset['status'];
           const durationMs = parseInt(el.dataset['durationms'] ?? '0', 10);
-          console.log('[Webview] Fetching logs on-demand', { nodeId, logBaseKey, stepName, stageName, variation: state.logViewerVariation });
+          const isAgent = el.dataset['isagent'] === '1';
+          console.log('[Webview] Fetching logs on-demand', { nodeId, logBaseKey, stepName, stageName, isAgent, variation: state.logViewerVariation });
           vscode.postMessage({
             type: 'fetchStepLogs',
             nodeId,
@@ -4442,7 +4649,8 @@ function bind(): void {
             pipelineName,
             planExecutionId,
             status,
-            durationMs
+            durationMs,
+            isAgent,
           });
         }
       }
@@ -4585,9 +4793,10 @@ function bind(): void {
 
   // Keydown handler for Enter key
   root.addEventListener('keydown', (e) => {
-    // Close sort menu on Escape
-    if (e.key === 'Escape' && state.sortMenuOpen) {
+    // Close sort / range menus on Escape
+    if (e.key === 'Escape' && (state.sortMenuOpen || state.rangeMenuOpen)) {
       state.sortMenuOpen = false;
+      state.rangeMenuOpen = false;
       scheduleRender(true);
       return;
     }
@@ -4607,6 +4816,13 @@ function bind(): void {
 
     const action = button.dataset.action;
     console.log('[Webview] Click delegation caught:', action);
+
+    // Harness Intelligence Chat button
+    if (action === 'openHarnessChat') {
+      e.preventDefault();
+      vscode.postMessage({ type: 'OPEN_INTELLIGENCE_CHAT' });
+      return;
+    }
 
     // AI bar actions
     if (action === 'sendAI') {
@@ -4633,7 +4849,15 @@ function bind(): void {
       console.log('[AI] Select tool:', toolId);
       if (!toolId) return;
       state.aiShowToolPicker = false;
+      state.aiDestination = 'external';
       vscode.postMessage({ type: 'AI_SWITCH_TOOL', toolId });
+      scheduleRender(true);
+    } else if (action === 'selectHarnessAI') {
+      e.preventDefault();
+      e.stopPropagation();
+      state.aiShowToolPicker = false;
+      state.aiDestination = 'harness';
+      vscode.postMessage({ type: 'AI_SET_DESTINATION', destination: 'harness' });
       scheduleRender(true);
     } else if (action === 'showAIMCPSetup') {
       e.preventDefault();
@@ -4656,9 +4880,25 @@ function bind(): void {
     } else if (action === 'configureAIMCP') {
       e.preventDefault();
       e.stopPropagation();
+      if (state.aiMcpSetupScope === 'project' && state.authSource === 'pat') {
+        state.aiOverlay = 'mcp-pat-warning';
+        scheduleRender(true);
+        return;
+      }
       state.aiMcpConfiguring = true;
       scheduleRender(true);
       vscode.postMessage({ type: 'AI_CONFIGURE_MCP', scope: state.aiMcpSetupScope });
+    } else if (action === 'confirmPatProjectMCP') {
+      e.preventDefault();
+      e.stopPropagation();
+      state.aiMcpConfiguring = true;
+      scheduleRender(true);
+      vscode.postMessage({ type: 'AI_CONFIGURE_MCP', scope: 'project' });
+    } else if (action === 'cancelPatProjectMCP') {
+      e.preventDefault();
+      e.stopPropagation();
+      state.aiOverlay = 'mcp-setup';
+      scheduleRender(true);
     } else if (action === 'openMCPConfig') {
       e.preventDefault();
       e.stopPropagation();
@@ -4741,10 +4981,26 @@ export HARNESS_ACCOUNT_ID=xxxxx`;
   });
 
   } // end AI event delegation setup
+
+  bindOpaTooltips();
 }
 
 function q(sel: string, handler: () => void): void {
   document.querySelectorAll(sel).forEach(el => el.addEventListener('click', handler));
+}
+
+// Single source of truth for the executions fetch params, so every call site
+// (load-more, filters, range) sends the same shape. Range/custom are consumed
+// by the host once Phase 4 lands; harmless before then.
+function postFetchHistory(): void {
+  vscode.postMessage({
+    type: 'fetchHistory',
+    page: state.historyPage,
+    filter: state.historyFilter,
+    pageSize: state.historyPageSize,
+    pipelineId: state.filteredPipelineId,
+    range: state.historyRange,
+  });
 }
 
 function sendAIMessage(): void {

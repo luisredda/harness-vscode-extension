@@ -42,6 +42,7 @@ A VS Code sidebar extension that surfaces Harness pipeline execution (CI, CD, ST
 | `src/ai/detector.ts` | Detects Claude Code CLI/Extension/Cursor and checks MCP configuration |
 | `src/ai/mcpConfigurer.ts` | Writes Harness MCP server config to `~/.claude.json` |
 | `src/ai/launcher.ts` | Launches Claude Code CLI/Extension or Cursor with prompts |
+| `src/ai/aidaChatPanel.ts` | Harness AI Chat panel — SSE streaming, markdown, history cards, session title header, split input + MCP pill, elicitation cards, pipeline-context chip, ⌘⇧H focus |
 
 ---
 
@@ -284,6 +285,115 @@ Supports **Claude Code** (CLI/Extension), **Cursor AI**, and **GitHub Copilot** 
 
 ---
 
+## Harness AI Chat (`src/ai/aidaChatPanel.ts`)
+
+A webview **panel** (separate from the sidebar), surfaced as **"Harness AI
+Chat"** (tab title, input placeholder, disclaimer), that streams from the
+Harness Intelligence chat API and renders full markdown + session history.
+The layout mirrors the web chat: greeting centered vertically, quick chips
+grouped near the input, minimal header (session title when active — see below).
+
+**Command:** `Harness: Open AI Chat` (`harness.openIntelligenceChat`) — also
+bound to **⌘⇧H** (macOS) / **Ctrl+⇧H** (Windows/Linux). Opens or focuses the
+panel and places the cursor in the input (`FOCUS_INPUT` webview message).
+
+**Endpoint (SSE):**
+```
+POST /gateway/harness-intelligence/api/v2/chat?is_v2=false&orgIdentifier=…&projectIdentifier=…
+  body: { prompt, context:{currentUrl}, metadata, conversation:[], conversation_id?, system_event?, stream:true }
+  → text/event-stream
+```
+The host reads the stream, forwards each `event:`/`data:` pair to the webview as
+`STREAM_EVENT`, and `handleSseEvent` dispatches on the event name.
+
+**Request `context`:** only `currentUrl` observed in captures — the backend
+parses account/org/project/pipeline/stage from the Harness UI URL (same
+URL-extraction pattern as the Harness MCP server).
+
+**Base URL:** all Intelligence API calls use `cfg.baseUrl` from extension
+config (`harness.baseUrl` / `HARNESS_BASE_URL`) — works for SaaS and
+self-hosted instances that expose the same `/gateway/harness-intelligence/…`
+routes.
+
+### Input layout
+
+Claude-style **split input box** (`.ac-form`):
+
+- **Top:** auto-growing textarea (`.ac-form-body`)
+- **Divider:** subtle neutral grey line (`--ac-input-divider`) — not the outer
+  animated border color
+- **Footer:** MCP connector pill (left) + circular send button (right)
+
+Disclaimer under the input shows the focus shortcut (platform-aware).
+
+### Session title & history
+
+- **Active chat:** header shows the backend-generated **session title** once
+  available (empty on new-chat greeting). Title sources: SSE
+  `stream_metadata.title`, `session_title` / `title` events, or a post-stream
+  `FETCH_SESSION_TITLE` fallback (host lists sessions, webview gets
+  `SESSION_TITLE`).
+- **History view** (overflow menu → History): full-panel list with search;
+  header reads **History**. Each session is a **card** (title + relative time,
+  e.g. `3h ago`); ⋮ menu supports rename / copy conversation ID / delete.
+- Reopening a session sets the header title immediately; rename syncs header
+  when the active session is renamed.
+
+### Pipeline-context chip
+
+Shows which pipeline/execution the chat is scoped to and keeps it in sync as
+the user navigates — an improvement over the web chat, which sends `currentUrl`
+silently with no visible indicator.
+
+- **Auto-follow:** `extension.ts` tracks `currentViewedExecution`; on identity
+  change it calls `updateActiveChatContext()` → posts `SET_CONTEXT` to the open
+  panel. Guarded by `lastSyncedContextKey` so poll ticks don't spam it.
+- **Chip:** `renderContextChip()` draws `Context: <pipeline> ×`; it pulses
+  (`ac-context-flash`) when context auto-updates on navigation.
+- **Remove (×):** sets `contextCleared`, hides the chip, and stops sending
+  `currentUrl` (chat goes context-free). Navigating to a new pipeline
+  re-attaches context and clears the flag.
+
+### MCP connectors
+
+External MCP connectors (Jira, GitHub, …) are enabled **per-user-per-project**
+via a backend setting — the chat request/body is identical whether or not they
+apply; the backend injects the tools from the stored setting keyed on the
+authenticated user + project. So a chat scoped to a project without connectors
+silently has no external tools.
+
+- On open, `fetchSelectedConnectorIds()` GETs
+  `/api/v1/user-settings/selected_connector_ids?orgIdentifier=…&projectIdentifier=…`
+  (`{ value: "id1,id2" }`), and a status **pill** (`ac-mcp-pill`) in the input
+  **footer** (below the divider) shows `MCP · N connectors` (green) or
+  `MCP · none`, with a hover tooltip listing the connector names or explaining
+  none are configured.
+- Verified via curl + browser captures: works over PAT (`x-api-key`); the only
+  variable is which **project** the extension points at.
+
+### Elicitations
+
+Interactive cards emitted mid-stream to collect input. `renderElicitation`
+draws them; on submit the webview posts a `system_event`
+(`{ event_type, capability_id, result }`) back through the same endpoint.
+
+| SSE event | UI | `result` field |
+|-----------|----|----------------|
+| `elicitation_yaml` / `elicitation_confirm` | YAML/confirm card + action buttons | `action_id` (+ `yaml`, entity info) |
+| `elicitation_free_text` | textarea | `free_text` |
+| `elicitation_select` | option pills (single) | `selection` = chosen label |
+| `elicitation_multi_select` | checkboxes (multi) | `selections` (array) + `selection` (comma-joined) |
+| `elicitation_form` | per-field: `select`→dropdown, `multi_select`→checkboxes, `text`→textarea | `form_values` keyed by **field label**; `multi_select` → array |
+
+- **Contracts verified** against live web-app SSE + request captures (Chrome
+  DevTools MCP) — field names are exact, not guessed.
+- Cards **lock on submit** so a later edit can't re-enable Submit.
+- **History:** stored answers live under `resolved.result`;
+  `parseElicitationData` flattens `resolved.result` into `resolved` so read-only
+  replay highlights the previously-chosen options.
+
+---
+
 ## Feature Management (FME)
 
 - Uses Split.io SDK for Harness FME integration
@@ -340,6 +450,7 @@ logger.error('Component', 'Operation failed:', error);
 ```
 
 **Commands:**
+- `Harness: Open AI Chat` — Open/focus Harness AI Chat panel (⌘⇧H / Ctrl+⇧H)
 - `Harness: Show Debug Output` — View full API payloads
 - `Harness: Debug FME Flags` — View current feature flag states
 - `Harness: Export Last Execution to JSON` — Export execution data for debugging

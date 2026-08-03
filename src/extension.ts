@@ -18,6 +18,8 @@ import { dispatchModules } from './pipeline/executionDispatcher';
 import { initFmeClient, destroyFmeClient, getLogViewerVariation } from './fme/fmeClient';
 import { LogContentProvider, LOG_SCHEME } from './logs/logContentProvider';
 import { openLogAsEditorTab } from './logs/logEditorTab';
+import { openAgentChatTab, isAgentLog } from './logs/agentChatTab';
+import { openAidaChatPanel, registerAidaChatPanelSerializer, updateActiveChatContext, updateActiveChatTheme, type IntelligenceChatContext } from './ai/aidaChatPanel';
 import { detectAITools } from './ai/detector';
 import { configureMCP, configureCopilotMCP } from './ai/mcpConfigurer';
 import { buildPrompt } from './ai/promptBuilder';
@@ -26,6 +28,7 @@ import { logger } from './utils/logger';
 
 // Global state key for AI tool preference
 const AI_TOOL_PREFERENCE_KEY = 'harness.aiToolPreference';
+const AI_DESTINATION_KEY = 'harness.aiDestination';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const secretStore    = new SecretStore(context.secrets);
@@ -40,12 +43,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(diagnostics, statusBar, outputChannel);
 
+  registerAidaChatPanelSerializer(context, configManager);
+
   // Helper to get/set AI tool preference
   const getAIToolPreference = (): string | undefined => {
     return context.globalState.get<string>(AI_TOOL_PREFERENCE_KEY);
   };
   const setAIToolPreference = async (toolId: string): Promise<void> => {
     await context.globalState.update(AI_TOOL_PREFERENCE_KEY, toolId);
+  };
+
+  // AI footer destination (native "harness" launcher vs external tool) —
+  // persisted so the user's last choice survives IDE restarts.
+  const getAIDestination = (): 'harness' | 'external' => {
+    return context.globalState.get<'harness' | 'external'>(AI_DESTINATION_KEY, 'harness');
+  };
+  const setAIDestination = async (dest: 'harness' | 'external'): Promise<void> => {
+    await context.globalState.update(AI_DESTINATION_KEY, dest);
   };
 
   // ── Log Content Provider (for editor tab logs) ────
@@ -76,9 +90,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const fmeSdkKey = userSdkKey || envSdkKey || undefined; // undefined = use default in fmeClient
 
   if (currentConfig) {
-    // Wait for FME to be ready (with timeout) so sidebar gets correct theme
-    try {
-      await initFmeClient(fmeSdkKey, currentConfig, () => {
+    // FME must never block extension activation — sidebar/poller start immediately.
+    void initFmeClient(fmeSdkKey, currentConfig, context, () => {
         // Callback when FME flags update - send new GIT_CONTEXT to webview
         // Run in background to avoid blocking poller or creating race conditions
         (async () => {
@@ -107,10 +120,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         })().catch(err => {
           logger.warn('FME', 'Failed to send updated GIT_CONTEXT:', err);
         });
+      }).catch(err => {
+        logger.warn('FME', 'Failed to initialize:', err);
       });
-    } catch (err) {
-      logger.warn('FME', 'Failed to initialize:', err);
-    }
   }
 
   // ── Sidebar ───────────────────────────────────────
@@ -197,7 +209,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Route webview messages back to VS Code commands
   bridge.onMessage(async (msg: unknown) => {
-    const m = msg as { type: string; command?: string; url?: string; approvalInstanceId?: string; action?: string; comments?: string; page?: number; filter?: string; planExecutionId?: string; pipelineIdentifier?: string; firstStageId?: string; pageSize?: number; pipelineId?: string };
+    const m = msg as { type: string; command?: string; url?: string; approvalInstanceId?: string; action?: string; comments?: string; page?: number; filter?: string; pageSize?: number; range?: string; planExecutionId?: string; pipelineIdentifier?: string; firstStageId?: string; pipelineId?: string; pinnedPipelines?: string[]; interruptType?: string };
 
     logger.debug('Extension', 'Bridge received message:', m.type);
 
@@ -222,7 +234,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } else if (m.type === 'rerunPipeline' && m.planExecutionId && m.pipelineIdentifier && currentConfig) {
       const planExecutionId = m.planExecutionId;
       const pipelineIdentifier = m.pipelineIdentifier;
-      const firstStageId = (m as any).firstStageId;
+      const firstStageId = m.firstStageId;
 
       // Show confirmation dialog
       const confirmation = await vscode.window.showWarningMessage(
@@ -295,7 +307,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Silent return - empty state in webview will handle unconfigured state
         return;
       }
-      await fetchExecutionHistory(currentConfig, bridge, m.page ?? 0, m.filter ?? 'all', m.pageSize ?? 15, m.pipelineId);
+      await fetchExecutionHistory(currentConfig, bridge, m.page ?? 0, m.filter ?? 'all', m.pageSize ?? 15, m.pipelineId, m.range ?? 'LAST_24_HOURS');
     } else if (m.type === 'fetchExecutionDetail') {
       logger.debug('Extension', 'fetchExecutionDetail message received', { planExecutionId: m.planExecutionId, hasConfig: !!currentConfig });
       if (!currentConfig || !m.planExecutionId) {
@@ -313,8 +325,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const msg = m as any;
       if (msg.logBaseKey && msg.nodeId) {
-        // Run log fetch in background - don't block message handler or poller
-        fetchStepLogsOnDemand(currentConfig, bridge, logProvider, msg.logBaseKey, msg.nodeId, msg.stepName, msg.stageName, msg.pipelineName, msg.planExecutionId, msg.status, msg.durationMs);
+        if (msg.isAgent) {
+          // Agent step: open chat viewer panel instead of log editor tab
+          openAgentChatTabForStep(currentConfig, msg.logBaseKey, msg.stepName, msg.stageName, msg.pipelineName, msg.planExecutionId, msg.status, msg.durationMs, bridge, msg.nodeId);
+        } else {
+          // Run log fetch in background - don't block message handler or poller
+          fetchStepLogsOnDemand(currentConfig, bridge, logProvider, msg.logBaseKey, msg.nodeId, msg.stepName, msg.stageName, msg.pipelineName, msg.planExecutionId, msg.status, msg.durationMs);
+        }
       }
     } else if (m.type === 'setDefaultView') {
       const msg = m as any;
@@ -476,6 +493,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           message: msg,
         });
       }
+    } else if (m.type === 'OPEN_INTELLIGENCE_CHAT') {
+      const cfg = await configManager.getConfig();
+      if (!cfg) {
+        vscode.window.showWarningMessage('Please configure Harness before opening Intelligence Chat.', 'Configure').then(sel => {
+          if (sel === 'Configure') vscode.commands.executeCommand('harness.configureApiKey');
+        });
+        return;
+      }
+      let chatContext: import('./ai/aidaChatPanel').IntelligenceChatContext | undefined;
+      if (currentViewedExecution?.execution) {
+        const ex = currentViewedExecution.execution;
+        const mi = ex.moduleInfo ?? {};
+        const module = mi.sto ? 'sto' : mi.ci ? 'ci' : mi.cd ? 'cd' : 'ai-agents';
+        const currentUrl = `${cfg.baseUrl}/ng/account/${cfg.accountIdentifier}/all/orgs/${cfg.orgIdentifier}/projects/${cfg.projectIdentifier}/pipelines/${ex.pipelineIdentifier}/deployments/${ex.planExecutionId}/pipeline`;
+        chatContext = { currentUrl, module, pipelineName: ex.name ?? ex.pipelineIdentifier, planExecutionId: ex.planExecutionId };
+      } else {
+        chatContext = {
+          currentUrl: `${cfg.baseUrl}/ng/account/${cfg.accountIdentifier}/module/ai-agents/orgs/${cfg.orgIdentifier}/projects/${cfg.projectIdentifier}/worker-agents`,
+          module: 'ai-agents',
+        };
+      }
+      await openAidaChatPanel(context, configManager, chatContext);
     } else if (m.type === 'AI_CONFIGURE_MCP') {
       // Configure Harness MCP server
       const aiMsg = m as { type: 'AI_CONFIGURE_MCP'; scope?: 'project' | 'global' };
@@ -536,6 +575,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const activeTool = updatedDetection.activeTool || 'claudecode-cli';
 
         logger.info('AI', `MCP configured successfully at ${result.path}`);
+        if (result.gitignoreAdded?.length) {
+          vscode.window.showInformationMessage(
+            `Harness: Added ${result.gitignoreAdded.join(' and ')} to .gitignore — the MCP config contains your API key.`,
+          );
+        }
         bridge.send({
           type: 'AI_CONFIG_DONE',
           tool: activeTool,
@@ -567,6 +611,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!target) return;
       const uri = vscode.Uri.file(target.path);
       await vscode.commands.executeCommand('vscode.open', uri);
+    } else if (m.type === 'AI_SET_DESTINATION') {
+      // Persist the AI footer destination (e.g. user switched back to Harness AI).
+      const aiMsg = m as { type: 'AI_SET_DESTINATION'; destination: 'harness' | 'external' };
+      if (aiMsg.destination === 'harness' || aiMsg.destination === 'external') {
+        await setAIDestination(aiMsg.destination);
+      }
     } else if (m.type === 'AI_SWITCH_TOOL') {
       // Switch active AI tool
       const aiMsg = m as any;
@@ -574,8 +624,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       logger.debug('AI', 'Switching to tool:', aiMsg.toolId);
 
-      // Save preference
+      // Save preference (tool + destination: picking a tool opts into external)
       await setAIToolPreference(aiMsg.toolId);
+      await setAIDestination('external');
 
       // Re-detect with new preference
       const detection = await detectAITools(aiMsg.toolId);
@@ -650,6 +701,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { getWebviewThemeVariation } = await import('./fme/fmeClient');
       const webviewTheme = getWebviewThemeVariation();
       const ideThemeKind = vscode.window.activeColorTheme.kind;
+      updateActiveChatTheme(ideThemeKind);
       // Send updated theme to webview via GIT_CONTEXT message
       const gitCtx = await import('./git/gitContext');
       const ctx = await gitCtx.getGitContext();
@@ -678,6 +730,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Track currently viewed execution for export
   let currentViewedExecution: { execution: any; executionGraph?: any; source: 'live' | 'history' } | null = null;
 
+  // Build the chat context (pipeline URL + label) from the currently viewed
+  // execution, or a general ai-agents context when nothing is open. Shared by
+  // both the open-chat command and the auto-follow hook so they never diverge.
+  const buildChatContext = (
+    cfg: { baseUrl: string; accountIdentifier: string; orgIdentifier: string; projectIdentifier: string },
+  ): IntelligenceChatContext => {
+    const { baseUrl, accountIdentifier, orgIdentifier, projectIdentifier } = cfg;
+    if (currentViewedExecution?.execution) {
+      const ex = currentViewedExecution.execution;
+      const mi = ex.moduleInfo ?? {};
+      const module = mi.sto ? 'sto' : mi.ci ? 'ci' : mi.cd ? 'cd' : 'ai-agents';
+      return {
+        currentUrl: `${baseUrl}/ng/account/${accountIdentifier}/all/orgs/${orgIdentifier}/projects/${projectIdentifier}/pipelines/${ex.pipelineIdentifier}/deployments/${ex.planExecutionId}/pipeline`,
+        module,
+        pipelineName: ex.name ?? ex.pipelineIdentifier,
+        planExecutionId: ex.planExecutionId,
+      };
+    }
+    return {
+      currentUrl: `${baseUrl}/ng/account/${accountIdentifier}/module/ai-agents/orgs/${orgIdentifier}/projects/${projectIdentifier}/worker-agents`,
+      module: 'ai-agents',
+    };
+  };
+
+  // Auto-follow: whenever the viewed execution changes, keep an open chat's
+  // context in sync (no-op if the chat panel isn't open).
+  // Only push context to the chat when the viewed execution's identity changes
+  // (EXECUTION_UPDATE fires on every poll tick — we don't want to spam/re-highlight).
+  let lastSyncedContextKey: string | undefined;
+  const syncChatContext = () => {
+    if (!currentConfig) { return; }
+    const key = currentViewedExecution?.execution?.planExecutionId ?? '__none__';
+    if (key === lastSyncedContextKey) { return; }
+    lastSyncedContextKey = key;
+    updateActiveChatContext(buildChatContext(currentConfig));
+  };
+
   // Update status bar from execution messages + track current execution
   const origSend = bridge.send.bind(bridge);
   bridge.send = (message) => {
@@ -698,6 +787,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         planExecutionId: message.execution.planExecutionId,
         hasGraph: !!message.executionGraph,
       });
+      syncChatContext();
     } else if (message.type === 'EXECUTION_UPDATE') {
       const ex = message.execution;
       statusBar.updateFromStatus(ex.status, ex.name ?? ex.pipelineIdentifier ?? 'Pipeline');
@@ -714,6 +804,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           planExecutionId: ex.planExecutionId,
           hasGraph: !!message.executionGraph,
         });
+        syncChatContext();
       } else {
         // Update the execution data but keep source as 'history'
         currentViewedExecution.execution = ex;
@@ -731,6 +822,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (currentViewedExecution?.source === 'live') {
         currentViewedExecution = null;
         logger.debug('Extension', 'Cleared live execution (NO_EXECUTION)');
+        syncChatContext();
       } else {
         logger.debug('Extension', 'Keeping execution (not from live mode)');
       }
@@ -939,6 +1031,46 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       refreshFmeClient();
       vscode.window.showInformationMessage('FME: Flag states logged to Output panel (View → Output → Harness). Set logLevel=debug for details.');
     }),
+
+    vscode.commands.registerCommand('harness.openIntelligenceChat', async () => {
+      const cfg = await configManager.getConfig();
+      if (!cfg) {
+        vscode.window.showWarningMessage('Harness: Please configure your API key before using Intelligence Chat.');
+        vscode.commands.executeCommand('harness.configureApiKey');
+        return;
+      }
+
+      // Build context from currently viewed execution (if any)
+      let chatContext: import('./ai/aidaChatPanel').IntelligenceChatContext | undefined;
+
+      if (currentViewedExecution?.execution) {
+        const ex = currentViewedExecution.execution;
+        const { baseUrl, accountIdentifier, orgIdentifier, projectIdentifier } = cfg;
+
+        // Determine module from execution moduleInfo keys
+        const mi = ex.moduleInfo ?? {};
+        const module = mi.sto ? 'sto' : mi.ci ? 'ci' : mi.cd ? 'cd' : 'ai-agents';
+
+        // Build the execution URL — this is what AIDA uses to pull context server-side
+        const currentUrl = `${baseUrl}/ng/account/${accountIdentifier}/all/orgs/${orgIdentifier}/projects/${projectIdentifier}/pipelines/${ex.pipelineIdentifier}/deployments/${ex.planExecutionId}/pipeline`;
+
+        chatContext = {
+          currentUrl,
+          module,
+          pipelineName: ex.name ?? ex.pipelineIdentifier,
+          planExecutionId: ex.planExecutionId,
+        };
+      } else if (cfg) {
+        // No execution open — use the worker-agents page as context (general ai-agents)
+        const { baseUrl, accountIdentifier, orgIdentifier, projectIdentifier } = cfg;
+        chatContext = {
+          currentUrl: `${baseUrl}/ng/account/${accountIdentifier}/module/ai-agents/orgs/${orgIdentifier}/projects/${projectIdentifier}/worker-agents`,
+          module: 'ai-agents',
+        };
+      }
+
+      await openAidaChatPanel(context, configManager, chatContext);
+    }),
   );
 
   // ── Config / secret change listeners ─────────────
@@ -1005,6 +1137,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     bridge.send({
       type: 'STATE_UPDATE',
       aiDetection: detection,
+      aiDestination: getAIDestination(),
     });
   }).catch(err => {
     logger.error('AI', 'Detection failed:', err);
@@ -1026,19 +1159,43 @@ async function fetchExecutionHistory(
   page: number,
   filter: string,
   pageSize: number,
-  pipelineId?: string
+  pipelineId?: string,
+  range: string = 'LAST_24_HOURS'
 ): Promise<void> {
-  logger.debug('Extension', 'fetchExecutionHistory called', { page, filter, pageSize, pipelineId, org: config.orgIdentifier, project: config.projectIdentifier });
+  logger.debug('Extension', 'fetchExecutionHistory called', { page, filter, pageSize, pipelineId, range, org: config.orgIdentifier, project: config.projectIdentifier });
   try {
     const client = new HarnessClient(config);
 
-    // Fetch ALL executions (up to 100 from API) - we'll filter client-side
-    const requestBody: any = {
-      filterType: 'PipelineExecution',
-      timeRange: { timeRangeFilterType: 'LAST_7_DAYS' },
+    // Build the time window as an explicit rolling startTime/endTime for EVERY
+    // range. Verified: the named enums (LAST_3_MONTHS etc.) are *calendar-period*
+    // filters — LAST_3_MONTHS returns the 3 whole months BEFORE the current one,
+    // so the newest row is 30+ days old even sorted DESC. Explicit windows give a
+    // true "last N up to now", newest-first. 'ALL' omits the filter entirely.
+    const DAY = 86_400_000;
+    const RANGE_DAYS: Record<string, number> = {
+      LAST_24_HOURS: 1,
+      LAST_7_DAYS: 7,
+      LAST_30_DAYS: 30,
+      LAST_3_MONTHS: 90,
+      LAST_12_MONTHS: 365,
     };
+    const requestBody: any = { filterType: 'PipelineExecution' };
+    if (range !== 'ALL') {
+      const now = Date.now();
+      const days = RANGE_DAYS[range] ?? 1;
+      requestBody.timeRange = { startTime: now - days * DAY, endTime: now };
+    }
 
-    logger.debug('Extension', 'fetchExecutionHistory request', { page, filter });
+    // Push status + pipeline filters server-side so counts and paging are real.
+    const STATUS_MAP: Record<string, string[]> = {
+      failed:  ['Failed', 'Aborted', 'Expired', 'IgnoreFailed'],
+      success: ['Success'],
+      waiting: ['ApprovalWaiting', 'InterventionWaiting', 'ResourceWaiting'],
+    };
+    if (STATUS_MAP[filter]) { requestBody.status = STATUS_MAP[filter]; }
+    if (pipelineId) { requestBody.pipelineIdentifiers = [pipelineId]; }
+
+    logger.debug('Extension', 'fetchExecutionHistory request', { page, filter, range, body: requestBody });
 
     // Fetch a larger page size to have enough data for client-side filtering
     const response = await client.post<{
@@ -1064,57 +1221,23 @@ async function fetchExecutionHistory(
         accountIdentifier: config.accountIdentifier,
         orgIdentifier: config.orgIdentifier,
         projectIdentifier: config.projectIdentifier,
-        page: '0',
-        size: '100', // Fetch more so we have data to filter
+        page: String(page),        // real server-side page
+        size: String(pageSize),    // real page size
         sort: 'startTs,DESC',
       }
     );
 
-    let executions = response.data?.content ?? [];
+    // Status + pipeline filters and pagination are now server-side, so the
+    // returned content is exactly the requested page and totalElements is real.
+    const paginatedExecutions = response.data?.content ?? [];
+    const total = response.data?.totalElements ?? paginatedExecutions.length;
 
     logger.debug('Extension', 'Received executions from API', {
-      count: executions.length,
+      count: paginatedExecutions.length,
+      total,
+      page,
       filter,
-      statuses: executions.map(e => e.status).slice(0, 5)
     });
-
-    // Client-side filtering by status
-    if (filter === 'failed') {
-      executions = executions.filter(ex => {
-        const status = ex.status.toUpperCase();
-        return status === 'FAILED' || status === 'FAILURE';
-      });
-    } else if (filter === 'success' || filter === 'passed') {
-      executions = executions.filter(ex => {
-        const status = ex.status.toUpperCase();
-        return status === 'SUCCESS' || status === 'SUCCEEDED';
-      });
-    } else if (filter === 'waiting') {
-      executions = executions.filter(ex => {
-        const status = ex.status.toUpperCase();
-        return status === 'APPROVALWAITING' || status === 'APPROVAL_WAITING';
-      });
-    }
-
-    logger.debug('Extension', 'After client-side status filter', {
-      count: executions.length,
-      filter
-    });
-
-    // Filter by pipeline if specified
-    if (pipelineId) {
-      executions = executions.filter(ex => ex.pipelineIdentifier === pipelineId);
-      logger.debug('Extension', 'After pipeline filter', {
-        count: executions.length,
-        pipelineId
-      });
-    }
-
-    // Client-side pagination
-    const total = executions.length;
-    const start = page * pageSize;
-    const end = start + pageSize;
-    const paginatedExecutions = executions.slice(start, end);
 
     // Get current git context to mark current commit
     const { getGitContext, extractTriggerShas, shaMatch } = await import('./git/gitContext');
@@ -1145,6 +1268,9 @@ async function fetchExecutionHistory(
         startTs: ex.startTs,
         endTs: ex.endTs,
         moduleInfo: ex.moduleInfo,
+        // Stage-level module map — lets the row detect security (STO) even when
+        // it runs as steps inside a CI/other stage (top-level moduleInfo misses it).
+        layoutNodeMap: (ex as any).layoutNodeMap,
         triggerInfo: ex.executionTriggerInfo,
         gitSha,
         gitBranch,
@@ -1264,7 +1390,7 @@ async function fetchExecutionDetail(
       }
 
       if (repoUrl) {
-        commitWebUrl = buildCommitUrl(repoUrl, commitSha);
+        commitWebUrl = buildCommitUrl(repoUrl, commitSha, config.baseUrl);
       }
     }
 
@@ -1303,6 +1429,50 @@ async function fetchExecutionDetail(
       type: 'EXECUTION_ERROR',
       message: msg,
     });
+  }
+}
+
+async function openAgentChatTabForStep(
+  config: { baseUrl: string; accountIdentifier: string; orgIdentifier: string; projectIdentifier: string; apiKey: string },
+  logBaseKey: string,
+  stepName?: string,
+  stageName?: string,
+  pipelineName?: string,
+  planExecutionId?: string,
+  status?: string,
+  durationMs?: number,
+  bridge?: typeof import('./ui/webviewBridge').WebviewBridge.prototype,
+  nodeId?: string
+): Promise<void> {
+  if (nodeId && bridge) {
+    bridge.send({ type: 'STEP_LOGS_LOADING', nodeId });
+  }
+  try {
+    await openAgentChatTab({
+      stepName: stepName || 'Agent',
+      stageName: stageName || '',
+      pipelineName: pipelineName || 'Pipeline',
+      planExecutionId: planExecutionId || '',
+      logBaseKey,
+      status: (status?.toUpperCase() as any) || 'SUCCESS',
+      durationMs,
+      config,
+    });
+    if (nodeId && bridge) {
+      bridge.send({ type: 'STEP_LOGS_OPENED_IN_TAB', nodeId });
+    }
+  } catch (err) {
+    logger.error('Extension', 'Failed to open agent chat tab:', err);
+    // Fall back to normal log fetch
+    if (nodeId && bridge) {
+      const { fetchStepLogs } = await import('./api/logService');
+      const lines = await fetchStepLogs(config as any, logBaseKey).catch(() => [] as string[]);
+      if (lines.length > 0) {
+        bridge.send({ type: 'LOG_CHUNK', nodeId, lines, autoExpand: false });
+      } else {
+        bridge.send({ type: 'STEP_LOGS_EMPTY', nodeId });
+      }
+    }
   }
 }
 
@@ -1370,6 +1540,24 @@ async function fetchStepLogsOnDemand(
     }
 
     if (lines.length > 0) {
+      // Agent log detection fallback: if logs look like a Harness AI agent run,
+      // open the chat viewer even if the webview didn't set isAgent on the step
+      if (isAgentLog(lines) && stepName && stageName) {
+        logger.debug('Extension', 'Detected agent log content — opening chat tab', { stepName, nodeId });
+        await openAgentChatTab({
+          stepName,
+          stageName,
+          pipelineName: pipelineName || 'Pipeline',
+          planExecutionId: planExecutionId || '',
+          logBaseKey,
+          status: (status?.toUpperCase() as any) || 'SUCCESS',
+          durationMs,
+          config,
+        });
+        bridge.send({ type: 'STEP_LOGS_OPENED_IN_TAB', nodeId });
+        return;
+      }
+
       // Check FME variation to decide how to display logs
       const variation = await getLogViewerVariation();
       logger.debug('Extension', `Log viewer variation: ${variation}`, { nodeId });

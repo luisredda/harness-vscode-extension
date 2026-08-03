@@ -8,13 +8,101 @@ import { logger } from '../utils/logger';
 // Users can override via VS Code settings (harness.fmeSdkKey) for testing/development
 const DEFAULT_FME_SDK_KEY = 'ilh4fn4r0omg8asdjkn75i3uq39i3d1lndm6';
 
+/** Must match a traffic type defined in the Harness FME project. */
+const FME_TRAFFIC_TYPE = 'user';
+const FME_EVENT_EXTENSION_ACTIVATED = 'extension_activated';
+
 let splitClient: SplitIO.IClient | null = null;
 let userKey: string | null = null;
+let cachedFmeAttributes: FmeAttributes | null = null;
 let cachedLogViewerVariation: 'inline' | 'expanded' | 'drawer' = 'expanded';
 let cachedWebviewThemeVariation: 'simple' | 'enhanced' = 'enhanced';
 let cachedAiChatEnabled: boolean = true; // Default to enabled (fail-safe for FME failures)
 let readyPromise: Promise<void> | null = null;
 let onUpdateCallback: (() => void) | null = null;
+let activationEventSent = false;
+
+type FmeAttributes = {
+  extension_version: string;
+  vscode_version: string;
+  app_host: 'cursor' | 'vscode';
+};
+
+function buildFmeAttributes(context: vscode.ExtensionContext): FmeAttributes {
+  const appName = vscode.env.appName.toLowerCase();
+  return {
+    extension_version: context.extension.packageJSON.version ?? 'unknown',
+    vscode_version: vscode.version,
+    app_host: appName.includes('cursor') ? 'cursor' : 'vscode',
+  };
+}
+
+function cacheFmeAttributes(context: vscode.ExtensionContext): FmeAttributes {
+  cachedFmeAttributes = buildFmeAttributes(context);
+  logger.debug('FME', '✓ Cached attributes for targeting:', cachedFmeAttributes);
+  return cachedFmeAttributes;
+}
+
+function getEvaluationAttributes(): SplitIO.Attributes | undefined {
+  return cachedFmeAttributes ?? undefined;
+}
+
+function trackExtensionActivation(client: SplitIO.IClient, context: vscode.ExtensionContext): void {
+  if (activationEventSent || !userKey) {
+    return;
+  }
+
+  const properties = cacheFmeAttributes(context);
+  // Node/server SDK: track(key, trafficType, eventType, value?, properties?)
+  const queued = client.track(
+    userKey,
+    FME_TRAFFIC_TYPE,
+    FME_EVENT_EXTENSION_ACTIVATED,
+    undefined,
+    properties,
+  );
+  activationEventSent = true;
+  logger.info('FME', '✓ Tracked extension_activated', { queued, ...properties });
+}
+
+function onSdkReady(context: vscode.ExtensionContext): void {
+  if (!splitClient) {
+    return;
+  }
+
+  try {
+    cacheFmeAttributes(context);
+  } catch (err) {
+    logger.warn('FME', 'Failed to cache attributes:', err);
+  }
+
+  try {
+    updateCachedVariations();
+  } catch (err) {
+    logger.warn('FME', 'Failed to cache flag variations:', err);
+  }
+
+  try {
+    trackExtensionActivation(splitClient, context);
+  } catch (err) {
+    logger.warn('FME', 'Failed to track extension_activated:', err);
+  }
+}
+
+/** Resolve FME init immediately; run attribute/track setup without blocking activation. */
+function scheduleSdkReadyWork(context: vscode.ExtensionContext, resolve: () => void, source: string): void {
+  logger.info('FME', `✓ ${source}`);
+  resolve();
+
+  setImmediate(() => {
+    try {
+      onSdkReady(context);
+      logger.info('FME', '✓ Post-ready FME setup complete');
+    } catch (err) {
+      logger.warn('FME', 'Post-ready FME setup failed:', err);
+    }
+  });
+}
 
 /**
  * Update cached variation values from FME
@@ -23,21 +111,27 @@ let onUpdateCallback: (() => void) | null = null;
 function updateCachedVariations(): void {
   if (!splitClient || !userKey) return;
 
-  const logViewerTreatment = splitClient.getTreatment(userKey, 'vscode-log-experience');
-  if (logViewerTreatment === 'expanded' || logViewerTreatment === 'drawer') {
-    cachedLogViewerVariation = logViewerTreatment;
-  } else {
+  const attrs = getEvaluationAttributes();
+
+  // Node/server SDK: getTreatment(key, flagName, attributes?)
+  const logViewerTreatment = splitClient.getTreatment(userKey, 'vscode-log-experience', attrs);
+  if (logViewerTreatment === 'inline') {
     cachedLogViewerVariation = 'inline';
+  } else if (logViewerTreatment === 'drawer') {
+    cachedLogViewerVariation = 'drawer';
+  } else {
+    // 'expanded', 'control', and unknown → expanded (product default)
+    cachedLogViewerVariation = 'expanded';
   }
 
-  const webviewThemeTreatment = splitClient.getTreatment(userKey, 'vscode-bar-experience');
+  const webviewThemeTreatment = splitClient.getTreatment(userKey, 'vscode-bar-experience', attrs);
   if (webviewThemeTreatment === 'enhanced') {
     cachedWebviewThemeVariation = 'enhanced';
   } else {
     cachedWebviewThemeVariation = 'simple';
   }
 
-  const aiChatTreatment = splitClient.getTreatment(userKey, 'vscode-mcp-integration');
+  const aiChatTreatment = splitClient.getTreatment(userKey, 'vscode-mcp-integration', attrs);
   logger.debug('FME', 'vscode-mcp-integration treatment received:', aiChatTreatment);
   // Default to enabled (true) unless explicitly set to 'off'
   // This ensures AI bar is ON by default if FME fails or returns 'control'
@@ -48,7 +142,12 @@ function updateCachedVariations(): void {
   logger.debug('FME', '✓ Cached AI chat enabled:', cachedAiChatEnabled, '(treatment was:', aiChatTreatment + ')');
 }
 
-export async function initFmeClient(sdkKey: string | undefined, config: HarnessConfig, onUpdate?: () => void): Promise<void> {
+export async function initFmeClient(
+  sdkKey: string | undefined,
+  config: HarnessConfig,
+  extensionContext: vscode.ExtensionContext,
+  onUpdate?: () => void,
+): Promise<void> {
   // Store the callback for SDK_UPDATE events
   if (onUpdate) {
     onUpdateCallback = onUpdate;
@@ -112,37 +211,52 @@ export async function initFmeClient(sdkKey: string | undefined, config: HarnessC
 
     splitClient = factory.client();
 
-    // Wait for SDK to be ready
-    readyPromise = new Promise<void>((resolve) => {
-      splitClient!.on(splitClient!.Event.SDK_READY, () => {
-        logger.info('FME', '✓ SDK ready');
+    // Wait for SDK to be ready (never block activation on post-ready attribute/track work)
+    readyPromise = Promise.race([
+      new Promise<void>((resolve) => {
+        let settled = false;
+        const settle = (source: string): void => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          scheduleSdkReadyWork(extensionContext, resolve, source);
+        };
 
-        // Cache initial flag values
-        updateCachedVariations();
+        splitClient!.on(splitClient!.Event.SDK_READY, () => {
+          settle('SDK ready');
+        });
 
-        resolve();
-      });
+        splitClient!.on(splitClient!.Event.SDK_READY_TIMED_OUT, () => {
+          logger.warn('FME', '⚠ SDK ready timeout - falling back to control');
+          if (!settled) {
+            settled = true;
+            resolve();
+          }
+        });
 
-      splitClient!.on(splitClient!.Event.SDK_READY_TIMED_OUT, () => {
-        logger.warn('FME', '⚠ SDK ready timeout - falling back to control');
-        resolve();
-      });
+        splitClient!.on(splitClient!.Event.SDK_UPDATE, () => {
+          try {
+            updateCachedVariations();
+          } catch (err) {
+            logger.warn('FME', 'Failed to refresh cached variations:', err);
+          }
+          if (onUpdateCallback) {
+            onUpdateCallback();
+          }
+        });
 
-      splitClient!.on(splitClient!.Event.SDK_UPDATE, () => {
-        // Update cached variations when flags change
-        updateCachedVariations();
-        // Notify extension that flags have updated
-        if (onUpdateCallback) {
-          onUpdateCallback();
-        }
-      });
-
-      splitClient!.on(splitClient!.Event.SDK_READY_FROM_CACHE, () => {
-        logger.info('FME', '✓ SDK ready from cache (offline mode)');
-        updateCachedVariations();
-        resolve();
-      });
-    });
+        splitClient!.on(splitClient!.Event.SDK_READY_FROM_CACHE, () => {
+          settle('SDK ready from cache (offline mode)');
+        });
+      }),
+      new Promise<void>((resolve) => {
+        setTimeout(() => {
+          logger.warn('FME', '⚠ FME init safety timeout - continuing with defaults');
+          resolve();
+        }, 6000);
+      }),
+    ]);
 
     await readyPromise;
     logger.info('FME', '✓ Harness FME client initialized');
@@ -196,8 +310,12 @@ export function refreshFmeClient(): void {
   if (splitClient && userKey) {
     logger.debug('FME', '🔄 Forcing flag refresh...');
     try {
-      // Get fresh treatments
-      const treatments = splitClient.getTreatments(userKey, ['vscode-log-experience', 'vscode-bar-experience', 'vscode-mcp-integration']);
+      const attrs = getEvaluationAttributes();
+      const treatments = splitClient.getTreatments(userKey, [
+        'vscode-log-experience',
+        'vscode-bar-experience',
+        'vscode-mcp-integration',
+      ], attrs);
       logger.debug('FME', '📋 Current flag states:', treatments);
     } catch (err) {
       logger.warn('FME', 'Error refreshing flags:', err);
@@ -217,5 +335,7 @@ export function destroyFmeClient(): void {
     }
     splitClient = null;
     userKey = null;
+    cachedFmeAttributes = null;
+    activationEventSent = false;
   }
 }

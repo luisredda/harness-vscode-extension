@@ -68,6 +68,63 @@
   cursor: default;
   opacity: 0.5;
 }
+/* ── Split launcher (Harness AI native destination) ─────────── */
+.aix-split {
+  display: flex;
+  align-items: stretch;
+  margin: 9px 10px 0;
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 14px;
+  overflow: hidden;
+  transition: border-color .15s, box-shadow .15s;
+}
+.aix-split:hover { border-color: var(--vscode-focusBorder); }
+.aix-split-main {
+  flex: 1;
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 12px; height: 30px;
+  background: transparent; border: none;
+  color: var(--vscode-input-foreground);
+  font-family: var(--vscode-font-family); font-size: 12px; font-weight: 500;
+  text-align: left; cursor: pointer;
+}
+.aix-split-main:hover { background: var(--vscode-toolbar-hoverBackground, rgba(255,255,255,0.06)); }
+/* Harness diamond — brand blue, legible on both dark & light backgrounds.
+   Uses the theme link color (adapts per theme); enhanced themes override to --accent. */
+.aix-split-ico { display: inline-flex; color: var(--vscode-textLink-foreground); }
+.aix-split-caret {
+  width: 34px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: none;
+  border-left: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  color: var(--vscode-descriptionForeground); cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.aix-split-caret:hover { background: var(--vscode-toolbar-hoverBackground, rgba(255,255,255,0.06)); color: var(--vscode-input-foreground); }
+.aix-split-hint {
+  padding: 6px 12px 9px;
+  font-size: 10px; color: var(--vscode-descriptionForeground);
+}
+.aix-split-hint-key {
+  font-family: var(--vscode-editor-font-family, monospace);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 3px; padding: 0 4px;
+}
+
+/* Picker: section divider (new) */
+.aix-picker-div { height: 1px; background: var(--vscode-panel-border); margin: 5px 8px; }
+
+/* External state: back-to-Harness link in the status row */
+.aix-back {
+  margin-left: auto;
+  background: transparent; border: none;
+  color: var(--vscode-textLink-foreground); cursor: pointer;
+  font-family: var(--vscode-font-family); font-size: 10.5px;
+  display: inline-flex; align-items: center; gap: 3px;
+}
+.aix-back:hover { text-decoration: underline; }
+
 .aix-send-spin {
   width: 10px; height: 10px;
   border: 1.5px solid currentColor;
@@ -460,6 +517,9 @@ code.aix-setup-v {
   border-color: var(--vscode-textLink-activeForeground);
   color: var(--vscode-textLink-activeForeground);
 }
+/* Harness diamond in the picker — always brand blue for recognizability. */
+.aix-picker-ico-harness { color: var(--vscode-textLink-foreground); }
+.aix-picker-item.on .aix-picker-ico-harness { color: var(--vscode-textLink-foreground); opacity: 1; }
 .aix-picker-text {
   flex: 1;
   display: flex;
@@ -487,6 +547,7 @@ code.aix-setup-v {
   gap: 5px;
   font-size: 10px;
   font-family: var(--vscode-font-family);
+  color: var(--vscode-descriptionForeground);
 }
 .aix-picker-status.is-ok   { color: var(--vscode-testing-iconPassed); }
 .aix-picker-status.is-warn { color: var(--vscode-editorWarning-foreground); }
@@ -863,10 +924,28 @@ code.aix-setup-v {
 }
 
 .theme-enhanced .aix-picker-name { color: var(--fg-0); }
-.theme-enhanced .aix-picker-sub { color: var(--fg-3); }
+.theme-enhanced .aix-picker-sub { color: var(--fg-2); }
+.theme-enhanced .aix-picker-status { color: var(--fg-3); }
 .theme-enhanced .aix-picker-status.is-ok   { color: var(--ok); }
 .theme-enhanced .aix-picker-status.is-warn { color: var(--warn); }
 .theme-enhanced .aix-picker-check { color: var(--accent); }
+/* Harness diamond — brand accent in both enhanced dark & light. */
+.theme-enhanced .aix-picker-ico-harness,
+.theme-enhanced .aix-picker-item.on .aix-picker-ico-harness { color: var(--accent); opacity: 1; }
+.theme-enhanced .aix-split-ico { color: var(--accent); }
+.theme-enhanced .aix {
+  background: var(--bg-1);
+  border-top-color: var(--line);
+}
+.theme-enhanced.theme-light .aix {
+  background: linear-gradient(180deg, transparent, oklch(48% 0.16 245 / 0.04));
+}
+
+.theme-enhanced .aix-split { background: var(--bg-2); border-color: var(--line-2); }
+.theme-enhanced .aix-split-main { color: var(--fg-0); }
+.theme-enhanced .aix-split-caret { border-left-color: var(--line-2); color: var(--fg-2); }
+.theme-enhanced .aix-split-hint { color: var(--fg-2); }
+.theme-enhanced .aix-back { color: var(--accent); }
 
 .theme-enhanced .aix-picker-foot {
   border-top-color: var(--line);
@@ -1187,6 +1266,24 @@ code.aix-setup-v {
   border-color: var(--accent-ring);
   color: var(--accent);
   background: var(--accent-soft);
+}
+
+/* ── PAT / secrets warning card ─────────────────────────────── */
+.aix-overlay-warn {
+  background:
+    radial-gradient(140% 100% at 0% 0%, var(--warn-soft), transparent 55%),
+    linear-gradient(180deg, var(--bg-2), var(--bg-1));
+  border: 1px solid oklch(80% 0.15 75 / 0.35);
+  padding: 12px 14px;
+}
+.aix-scope-tip-warn {
+  border-style: solid;
+  border-color: oklch(80% 0.15 75 / 0.45);
+  background: var(--warn-soft);
+  color: var(--fg-1);
+}
+.aix-scope-tip-warn .aix-scope-tip-ico {
+  color: var(--warn);
 }
 
 /* ── Conflict card ──────────────────────────────────────────── */
