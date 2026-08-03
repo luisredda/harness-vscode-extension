@@ -90,9 +90,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const fmeSdkKey = userSdkKey || envSdkKey || undefined; // undefined = use default in fmeClient
 
   if (currentConfig) {
-    // Wait for FME to be ready (with timeout) so sidebar gets correct theme
-    try {
-      await initFmeClient(fmeSdkKey, currentConfig, () => {
+    // FME must never block extension activation — sidebar/poller start immediately.
+    void initFmeClient(fmeSdkKey, currentConfig, context, () => {
         // Callback when FME flags update - send new GIT_CONTEXT to webview
         // Run in background to avoid blocking poller or creating race conditions
         (async () => {
@@ -121,10 +120,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         })().catch(err => {
           logger.warn('FME', 'Failed to send updated GIT_CONTEXT:', err);
         });
+      }).catch(err => {
+        logger.warn('FME', 'Failed to initialize:', err);
       });
-    } catch (err) {
-      logger.warn('FME', 'Failed to initialize:', err);
-    }
   }
 
   // ── Sidebar ───────────────────────────────────────

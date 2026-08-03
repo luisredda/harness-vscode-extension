@@ -4,7 +4,6 @@ import { DiagnosticsManager } from '../features/diagnosticsManager';
 import { WebviewBridge } from '../ui/webviewBridge';
 import { ExecutionDetail, ExecutionGraph } from '../api/types';
 import { GitContext } from '../git/gitContext';
-import { streamLogs, findActiveStage, findActiveSteps, findLeafStepsWithLogKey, fetchStepLogs } from '../api/logService';
 // STO imports - disabled for now
 // import { getStoFindings } from '../api/stoService';
 // import { applySTO, summariseSTO } from '../features/stoAnnotations';
@@ -34,14 +33,11 @@ export async function dispatchModules(
   // Normalize status to uppercase for consistent comparison
   const status = execution.status.toUpperCase();
   const isTerminal = ['SUCCESS','FAILED','ABORTED','EXPIRED','IGNOREFAILED','POLICY_EVALUATION_FAILURE'].includes(status);
-  // Fetch logs for terminal executions AND for ApprovalWaiting (so previous steps can be viewed)
-  const shouldFetchLogs = isTerminal || status === 'APPROVALWAITING';
 
   logger.debug('Harness', 'dispatchModules status check:', {
     rawStatus: execution.status,
     normalizedStatus: status,
     isTerminal,
-    shouldFetchLogs,
     willCheckApprovals: !isTerminal && status === 'APPROVALWAITING'
   });
 
@@ -56,39 +52,7 @@ export async function dispatchModules(
     commitWebUrl: ctx?.commitWebUrl,
   });
 
-  // CI: fetch logs via blob/download (terminal) or stream (active)
-  if (moduleInfo.ci) {
-    const layoutNodeMap = execution.layoutNodeMap ?? {};
-
-    if (shouldFetchLogs) {
-      // Check FME variation to decide if we should pre-load logs
-      const { getLogViewerVariation } = await import('../fme/fmeClient');
-      const variation = await getLogViewerVariation();
-
-      if (variation === 'inline') {
-        // Inline mode: pre-fetch logs for all steps and send to webview
-        // This allows instant display when user clicks a step
-        const steps = findLeafStepsWithLogKey(executionGraph);
-        if (steps.length > 0) {
-          let anyLogs = false;
-          await Promise.all(steps.map(async step => {
-            const lines = await fetchStepLogs(config, step.logBaseKey).catch(() => [] as string[]);
-            if (lines.length > 0) {
-              anyLogs = true;
-              webview.send({ type: 'LOG_CHUNK', nodeId: step.nodeId, lines, autoExpand: false });
-            }
-          }));
-          if (!anyLogs) webview.send({ type: 'LOGS_UNAVAILABLE' });
-        }
-      }
-      // Expanded mode: don't pre-fetch logs
-      // Logs will be fetched on-demand when user clicks a step
-      // and will open in editor tab instead of webview
-    }
-    // Note: For running executions, logs are fetched on-demand when the user clicks a step
-    // (handled by the fetchStepLogs message handler in extension.ts)
-    // Automatic streaming was removed to prevent API spam and unnecessary log fetching
-  }
+  // CI logs: fetched on-demand when the user clicks a step (extension.ts fetchStepLogs handler).
 
   // CD: deployment status
   if (moduleInfo.cd) {

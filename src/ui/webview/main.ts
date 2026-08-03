@@ -381,7 +381,7 @@ const state = {
   viewModeInitialized: false, // track if viewMode was initialized from defaultView
 
   // Log viewer preference (FME)
-  logViewerVariation: 'inline' as 'inline' | 'expanded' | 'drawer',
+  logViewerVariation: 'expanded' as 'inline' | 'expanded' | 'drawer',
 
   // Webview theme (FME vscode-bar-experience flag + IDE theme detection)
   webviewTheme: 'simple' as 'simple' | 'enhanced', // from FME flag
