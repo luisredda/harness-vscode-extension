@@ -135,13 +135,6 @@
           "command": "harness.openIntelligenceChat",
           "group": "navigation@1"
         }
-      ],
-      "view/title": [
-        {
-          "command": "harness.openIntelligenceChat",
-          "when": "view == harness.sidebar",
-          "group": "navigation@1"
-        }
       ]
     },
     "languages": [
