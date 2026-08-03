@@ -3,9 +3,9 @@
 [![VS Code Marketplace](https://vsmarketplacebadges.dev/version-short/harness-inc.harness-vscode.svg?label=VS%20Code%20Marketplace&color=00ADE4)](https://marketplace.visualstudio.com/items?itemName=harness-inc.harness-vscode)
 [![Installs](https://vsmarketplacebadges.dev/installs-short/harness-inc.harness-vscode.svg?color=00ADE4)](https://marketplace.visualstudio.com/items?itemName=harness-inc.harness-vscode)
 
-**Monitor CI/CD pipelines, view logs, and manage approvals — all without leaving your IDE.**
+**Monitor CI/CD pipelines, view logs, manage approvals, and chat with Harness AI — all without leaving your IDE.**
 
-Bring Harness directly into VS Code. See real-time pipeline status, debug failures with syntax-highlighted logs, approve deployments, and get AI-powered insights — zero context switching required.
+Bring Harness directly into VS Code and Cursor. See real-time pipeline status, debug failures with syntax-highlighted logs, approve deployments, ask Harness AI about your pipelines, or route questions to Claude Code, Copilot, or Cursor — zero context switching required.
 
 ---
 
@@ -32,8 +32,16 @@ Drill into an execution with dedicated detail tabs:
 - **Deploy** — per-stage services (with manifests) and environments, plus skip reasons.
 - **Security** — STO scanner results with per-severity tiles and new-vulnerability deltas, parsed straight from the execution.
 
-### 🤖 **AI-Powered Debugging**
-Ask Claude Code, GitHub Copilot, or Cursor AI about pipeline failures with automatic context injection. No copy-pasting needed.
+### 🤖 **Harness AI Chat**
+Ask Harness Intelligence directly in your IDE. Opens in a side-by-side panel with streaming markdown responses, session history, pipeline-context awareness, and MCP connector status — the same experience as the Harness web chat, tuned for developers.
+
+- **⌘⇧H** / **Ctrl+⇧H** to open or focus
+- **Ask Harness AI** button in the sidebar footer
+- Auto-scopes to the pipeline execution you're viewing (removable context chip)
+- Interactive elicitation cards for YAML edits, confirmations, and multi-step forms mid-conversation
+
+### 🔌 **External AI Tools**
+Route pipeline questions to **Claude Code**, **GitHub Copilot**, or **Cursor AI** with automatic context injection via MCP — one click away from the sidebar footer.
 
 ---
 
@@ -124,7 +132,27 @@ Working on multiple Harness projects? Use **"Harness: Switch Project (This Works
 
 ## 🤖 AI Integration
 
-Ask questions about your pipelines using **Claude Code**, **GitHub Copilot**, or **Cursor AI** with automatic context injection.
+### Harness AI Chat (built-in)
+
+The native **Harness AI Chat** panel connects to Harness Intelligence and streams answers beside your code.
+
+**Open it:**
+- Keyboard: **⌘⇧H** (macOS) / **Ctrl+⇧H** (Windows/Linux)
+- Sidebar footer: click **Ask Harness AI**
+- Command Palette: **Harness: Open AI Chat**
+- Editor / Cursor Agents Window toolbar (diamond icon)
+
+**What you get:**
+- Streaming markdown responses with session history (search, rename, delete past chats)
+- Pipeline context chip — auto-follows the execution you're viewing in the sidebar; click **×** to chat without context
+- MCP connector pill showing how many external connectors are active for your project
+- Interactive elicitation cards when the assistant needs input (confirm YAML, pick options, fill forms)
+
+Works with PAT or environment-variable auth on SaaS and self-hosted instances that expose `/gateway/harness-intelligence/…`.
+
+### External AI Tools
+
+Ask questions about your pipelines using **Claude Code**, **GitHub Copilot**, or **Cursor AI** with automatic context injection via MCP.
 
 ### Supported AI Tools
 
@@ -173,8 +201,14 @@ Ask questions about your pipelines using **Claude Code**, **GitHub Copilot**, or
 
 ### Usage
 
-- Type your question in the AI footer (appears at the bottom of the Harness panel)
-- Select your preferred tool using the dropdown (Claude Code CLI / Extension / GitHub Copilot / Cursor)
+**Harness AI Chat:**
+1. Open the panel (**⌘⇧H** or **Ask Harness AI** in the sidebar footer)
+2. Type your question — pipeline context is attached automatically when you're viewing an execution
+3. Browse past sessions via the overflow menu → **History**
+
+**External AI tools:**
+- Click the **⌄** chevron next to **Ask Harness AI** to switch to Claude Code, Copilot, or Cursor
+- Or type your question in the AI footer when an external tool is selected
 - Tool preference persists across VS Code sessions
 - Pipeline context automatically included in every query
 
@@ -237,6 +271,7 @@ Use **Harness: Switch Project (This Workspace)** to override org/project for spe
 
 | Command | Description |
 |---------|-------------|
+| **Harness: Open AI Chat** | Open or focus Harness AI Chat panel (⌘⇧H / Ctrl+⇧H) |
 | **Harness: Configure API Key** | Set up your credentials and project (global) |
 | **Harness: Reset Auth Configuration** | Clear all credentials and org/project settings |
 | **Harness: Select Org & Project** | Change global org/project settings |
